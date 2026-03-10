@@ -1650,32 +1650,7 @@ print("\n" + "="*70)
 print("SIMULATION COMPLETE  (v5 — T-dependent NRTL + electrolytes + Setschenow + PR-EOS)")
 print("="*70)
 print("""
-REMAINING REFINEMENTS:
-──────────────────────────────────────────────────────────────────────
-1. [DONE v4] NRTL thermodynamics: V-101/V-102/V-103 use rigorous
-   activity-coefficient LLE/VLE via thermo package.
 
-2. [DONE v5] T-dependent NRTL: τᵢⱼ(T) = aᵢⱼ + bᵢⱼ/T anchored at 25°C.
-   Correctly evaluates V-101 at 0°C, V-102 at 80°C, V-103 at 25°C.
-
-3. [DONE v5] Electrolyte ion tracking (Na⁺, OH⁻, H⁺, Cl⁻, Ibup⁻) +
-   extended Debye-Hückel activity coefficients for R-103/V-104.
-
-4. [DONE v5] Setschenow salting-out: ln(γ∞_salt) = ln(γ∞_water) + Ks×m_NaCl
-   applied in V-103 LLE (Ks = 0.15 L/mol for Ibuprofen).
-
-5. [DONE v5] PR-EOS liquid density for R-101 (150°C / 17 bar) using
-   Peng-Robinson cubic EOS with NIST critical properties.
-
-6. Rigorous column simulation:  replace Fenske shortcut with stage-by-
-   stage (e.g., scipy.optimize-based bubble-point marching).
-
-5. [DONE v5] Economic evaluation: CAPEX $1.76M TCI (Turton 2012 + CEPCI 2026),
-   OPEX $55.6M/yr dominated by PhI(OAc)₂; gross margin improves to −$4M/yr
-   with PhI oxidant recycle (PhI → PhI(OAc)₂ via H₂O₂/AcOH loop).
-
-6. IDAES upgrade path: each unit maps 1:1 to IDAES unit models.
-""")
 
 # ═══════════════════════════════════════════════════════════════════════
 # 7.  EXCEL EXPORT
