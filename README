@@ -1,23 +1,24 @@
-# Ibuprofen Continuous Flow Simulation — Full Documentation
-**Route:** Bogdan 2009 (hypervalent iodine oxidation)
-**Version:** v5.2 docs / v5 model (Aspen-level thermodynamic fidelity)
-**File:** `ibuprofen_sim.py`
-**Output:** `ibuprofen_sim_results.xlsx` (12-sheet workbook)
-**Repository:** [github.com/jihanraiyan/cont_ibuprofen_python_sim](https://github.com/jihanraiyan/cont_ibuprofen_python_sim)
+# Continuous Flow Ibuprofen Synthesis — Python Process Simulator
 
-**Related:** `PROCESS_DESCRIPTION.md` is a complementary narrative (process rationale and stream-level discussion). **Authoritative** stoichiometry, conversions, temperatures, and stream numbering are always those implemented in `ibuprofen_sim.py`.
+**Route:** Bogdan 2009 (hypervalent iodine oxidation)  
+**Model version:** v5 (Aspen-level thermodynamic fidelity)  
+**Script:** `ibuprofen_sim.py`  
+**Output:** `ibuprofen_sim_results.xlsx` (12-sheet workbook)
+
+> **Related:** `PROCESS_DESCRIPTION.md` covers process rationale and stream-level narrative. Authoritative stoichiometry, conversions, temperatures, and stream numbering are always those implemented in `ibuprofen_sim.py`.
 
 ---
 
 ## Table of Contents
-1. [Overview and Purpose](#1-overview-and-purpose)
-2. [Chemistry and Route Description](#2-chemistry-and-route-description)
-3. [Process Flow Description](#3-process-flow-description)
+
+1. [Overview](#1-overview)
+2. [Chemistry](#2-chemistry)
+3. [Process Flow](#3-process-flow)
 4. [Thermodynamic Models](#4-thermodynamic-models)
 5. [Equipment and Unit Operations](#5-equipment-and-unit-operations)
-6. [Recycle Convergence Strategy](#6-recycle-convergence-strategy)
-7. [Mass and Energy Balance Results](#7-mass-and-energy-balance-results)
-8. [Economic Evaluation](#8-economic-evaluation)
+6. [Recycle Convergence](#6-recycle-convergence)
+7. [Results](#7-results)
+8. [Economics](#8-economics)
 9. [Code Architecture](#9-code-architecture)
 10. [Assumptions and Limitations](#10-assumptions-and-limitations)
 11. [How to Run](#11-how-to-run)
@@ -25,491 +26,472 @@
 
 ---
 
-## 1. Overview and Purpose
+## 1. Overview
 
-This simulation models the continuous manufacture of pharmaceutical-grade ibuprofen using the **Bogdan 2009 continuous flow route**, as published in *Angewandte Chemie* (DOI: 10.1002/anie.200900575). It is a steady-state mass-and-energy balance simulation written in pure Python, targeting the fidelity of a preliminary Aspen Plus flowsheet.
+This simulation models the continuous manufacture of pharmaceutical-grade ibuprofen using the **Bogdan 2009 continuous flow route** (*Angew. Chem. Int. Ed.* 2009, DOI: 10.1002/anie.200900575). It is a steady-state mass-and-energy balance written in pure Python, targeting the fidelity of a preliminary Aspen Plus flowsheet.
 
-**Design target:** ~525 MT/yr ibuprofen API (≥99.9 wt% purity), operating 8,000 hr/yr — sized from the converged mass balance in code (not a hard-coded constant).
+**Design target:** ~525 MT/yr ibuprofen API (≥99.9 wt% purity), operating 8,000 hr/yr.
 
-The simulation is self-contained and runs end-to-end in a single script, covering:
+The simulation covers end-to-end:
+
 - Feed sizing and fresh-feed calculations
 - All reactors, separators, and distillation columns
 - Four-stream tear-stream recycle convergence
-- Rigorous NRTL thermodynamics with temperature dependence
+- Rigorous T-dependent NRTL thermodynamics (LLE and VLE)
 - Electrolyte ion tracking with Debye-Hückel activity coefficients
 - Setschenow salting-out correction
 - Peng-Robinson EOS for high-pressure liquid density
-- Equipment sizing (CSTR volume, column diameter/height)
+- Equipment sizing (reactor volumes, column diameter/height)
 - Economic evaluation (CAPEX, OPEX, P&L) in 2026 USD
-- Excel export of all results
+- Excel export of all results (12 sheets)
 
 ---
 
-## 2. Chemistry and Route Description
+## 2. Chemistry
 
-The Bogdan 2009 route converts **isobutylbenzene (IBB)** to ibuprofen in three catalytic steps, all performed in continuous flow microreactors:
+The Bogdan 2009 route converts **isobutylbenzene (IBB)** to ibuprofen in three catalytic steps, all in continuous flow:
 
-### Step 1 — Ritter-type Acylation (R-101)
-**Reaction:** IBB + Propionic Acid (ProAc) + PhI(OAc)₂ → Aryl Ketone (Ketone) + PhI + 2 AcOH
-**Conditions:** 150°C, 17 bar, 3 min residence time (Friedel–Crafts acylation step)
-**Catalyst/Reagent:** Phenyliodine diacetate (PhI(OAc)₂) — hypervalent iodine oxidant
-**Solvent:** Triflic acid (TfOH) — strong acid activator
-**Conversion:** **72%** of IBB (limited conversion vs. paper; unreacted IBB carried forward — see `X_R101` in `ibuprofen_sim.py`)
+### Step 1 — Friedel-Crafts Acylation (R-101)
 
-The aryl ketone intermediate (4-isobutylacetophenone) is the central intermediate. PhI(OAc)₂ is consumed stoichiometrically; PhI is a byproduct that is recovered and could be re-oxidised to close the reagent loop.
+```
+IBB + ProAc  →  Aryl Ketone + H₂O
+           TfOH (cat.), 150°C, 17 bar, 3 min
+```
 
-### Step 2 — Dakin-West / TMOF Condensation (SM-102, R-102)
-**Reaction:** Ketone + TMOF (trimethyl orthoformate) + MeOH → Ester
-**Conditions:** 50°C, 5 min residence time
-**Reagents:** TMOF, methanol (proton source)
-**Byproducts:** Methyl orthoformate hydrolysis products (MeOH, AcOH equivalents)
-**Conversion:** **75%** of limiting ketone / oxidant (`X_R102` in code).
+- **Conversion:** 72% of IBB (`X_R101`)
+- **Catalyst:** Triflic acid (TfOH) — strong acid activator, fed neat
+- By-product water must be removed before Step 2 (hydrolyses PhI(OAc)₂)
 
-The ester intermediate (methyl ester of ibuprofen) is formed by orthoester condensation.
+### Step 2 — 1,2-Aryl Migration (R-102)
 
-### Step 3 — Saponification / Acidification (R-103, V-104)
-**Reaction:** Ester + NaOH → IbupNa (sodium ibuprofen) + MeOH
-          IbupNa + HCl → Ibuprofen (free acid) + NaCl
-**Conditions:** R-103 at **65°C** / 1.5 bar (Bogdan Table 4 / `ibuprofen_sim.py`); acidification at ambient
-**Conversion:** **90%** of limiting ester / NaOH (`X_R103` in code).
-**Reagents:** 30 wt% NaOH (aq) in code (`F-05`); concentrated HCl (`F-06`)
-**Product:** Ibuprofen free acid precipitates from aqueous NaCl brine
+```
+Ketone + PhI(OAc)₂ + TMOF + H₂O  →  Ester + PhI + 2 AcOH + MeOH + HCOOCH₃
+                                      50°C, 17 bar, 5 min
+```
+
+- **Conversion:** 75% of limiting ketone (`X_R102`)
+- **TMOF** is a stoichiometric co-reagent (methoxy donor), not just a solvent
+- **4-stage PhI(OAc)₂ injection** — bulk concentration (0.44 mol/L) exceeds solubility limit (0.15 mol/L); staged addition keeps per-stage value at ~0.11 mol/L
+
+### Step 3 — Saponification and Acidification (R-103, V-104)
+
+```
+Ester + NaOH  →  IbupNa + MeOH         65°C, 1.5 bar, 7.5 min
+IbupNa + HCl  →  Ibuprofen + NaCl      ambient
+```
+
+- **Conversion:** 90% of limiting ester (`X_R103`)
+- NaOH used instead of KOH (3–4× cheaper; identical chemistry)
 
 ---
 
-## 3. Process Flow Description
+## 3. Process Flow
 
 ```
 FRESH FEEDS
-  IBB ──────────────────────────────────────────────┐
-  ProAc ────────────────────────────────────────────┤
-  TfOH (fresh + recycle C-101 bottoms) ────────────►│
-  PhI(OAc)2 ────────────────────────────────────────┤
-                                                     ▼
-                                               [SM-101 Mixer]
-                                                     │ S02
-                                                     ▼
-                                               [R-101 CSTR]   150°C / 17 bar / 3 min
-                                                     │ S03 (Ketone, PhI, AcOH, IBB traces)
-                                                     ▼
-                                               [V-101 LLE]    0°C, NRTL liquid-liquid split
-                                              /             \
-                              organic (S04)                  aq (TfOH wash → C-101)
-                                    │                              │
-                                    ▼                         [C-101 Column]
-                              [SM-102 Mixer]                  TfOH/Water/ProAc
-                              + TMOF + MeOH (fresh + recycles) │
-                                    │ S05                    TfOH recycle → SM-101
-                                    ▼
-                               [R-102 PFR]   50°C / 5 min
-                                    │ S06
-                                    ▼
-                               [V-102 VLE Flash]  80°C / 0.25 bar (vacuum)
-                              /                  \
-                  vapor (MeOH, TMOF, AcOH)        liquid (Ester, Ketone, PhI, Water)
-                        │                                    │ S07
-                        ▼                                    ▼
-                   [C-103 Column]                      [H-101 Heater]  → 65°C
-                   MeOH overhead                              │ S08
-                   TMOF/AcOH bottoms                          ▼
-                   recycles → SM-102                    [R-103 PFR]    65°C / 1.5 bar
-                                                        + NaOH (aq) / 7.5 min
-                                                              │ S10 (IbupNa aq + PhI org)
-                                                              ▼
-                                                        [V-103 LLE]   NRTL
-                                                       /             \
-                                          organic (PhI, PhI_OAc2)   aq (IbupNa brine)
-                                                │ S12                     │ S11
-                                                ▼                         ▼
-                                           [PhI recycle]          [V-104 Acidification]
-                                           (flag — no recycle       + HCl → Ibuprofen ppt
-                                            unit in base case)            │ S13
-                                                                          ▼
-                                                                    [CR-101 Crystalliser]
-                                                                    + hexane antisolvent
-                                                                          │
-                                                                          ▼
-                                                                    [C-102 Hex Condenser]
-                                                                    hexane recycle
-                                                                          │
-                                                                          ▼
-                                                                    [DR-101 Dryer]
-                                                                          │
-                                                                    IBUPROFEN API
-                                                                    525 MT/yr, 99.97 wt%
+  IBB ──────────────────────────────────────────────────┐
+  ProAc ────────────────────────────────────────────────┤
+  TfOH (fresh + recycle from C-101) ───────────────────►│
+                                                         ▼
+                                                   [SM-101 Mixer]
+                                                         │ S-01
+                                                         ▼
+                                                   [HX-101]  25→150°C
+                                                         │ S-02
+                                                         ▼
+                                                   [R-101 PFR]  150°C / 17 bar / 3 min
+                                                         │ S-03
+                                                         ▼
+                                                   [HX-102]  150→0°C
+                                                         │ S-04
+                                                         ▼
+                                                   [V-101 LLE]  0°C, NRTL
+                                              ┌──────────┴──────────┐
+                                    organic (S-05)              aqueous (S-06)
+                                    Ketone, IBB, TfOH            Water, ProAc
+                                          │                           │
+                                          │                     [C-101 Column]
+                                          │                     TfOH recycle ──► SM-101
+                                          │
+                                          ▼
+                                   [SM-102 Mixer]
+                                   + PhI(OAc)₂, TMOF, MeOH
+                                   + TMOF/MeOH recycles
+                                          │ S-07
+                                          ▼
+                                   [HX-103]  →50°C
+                                          │ S-08
+                                          ▼
+                                   [R-102 PFR]  50°C / 17 bar / 5 min
+                                   (4-stage PhI(OAc)₂ injection)
+                                          │ S-09
+                                          ▼
+                                   [V-102 VLE Flash]  80°C / 0.25 bar
+                              ┌──────────┴──────────────┐
+                         vapor (S-10)               liquid (S-11)
+                         MeOH, TMOF, AcOH            Ester, PhI, Ketone
+                              │                           │
+                        [C-103 Column]             [SM-103 Mixer]
+                        MeOH overhead              + NaOH (aq) F-05
+                        TMOF bottoms                     │ S-12
+                        recycles → SM-102                ▼
+                                                   [R-103 PFR]  65°C / 1.5 bar / 7.5 min
+                                                         │ S-13
+                                                         ▼
+                                                   [HX-104]  65→30°C
+                                                         │ S-14
+                                                         ▼
+                                                   [V-103 LLE]  25°C, NRTL + Setschenow
+                                              ┌──────────┴──────────┐
+                                    organic (S-15)              aqueous (S-16)
+                                    PhI, Ketone, IBB              IbupNa brine
+                                    → PhI recovery                    │
+                                                                       ▼
+                                                               [V-104 Acidification]
+                                                               + HCl (F-06)
+                                                                       │ S-17
+                                                                       ▼
+                                                               [LLE Hexane Extraction]
+                                                               4 stages, K_D = 8
+                                                               + Hexane recycle (C-102)
+                                                                       │ S-19
+                                                                       ▼
+                                                               [Hex-Flash]  70°C / 0.9 bar
+                                                               hexane overhead → C-102
+                                                                       │
+                                                               [CR-101 Crystalliser]
+                                                               MeOH solvent switch, 0°C
+                                                                       │
+                                                               [CF-101 Filter]  87% recovery
+                                                                       │
+                                                               [DR-101 Dryer]  55°C / 50 mbar
+                                                                       │
+                                                            IBUPROFEN API (S-27)
+                                                            ~525 MT/yr, ≥99.9 wt%
 ```
 
-### Stream numbering convention
+### Stream Numbering
+
 | Stream | Description |
 |--------|-------------|
-| S01 | IBB + TfOH + ProAc + PhI(OAc)₂ feed to SM-101 |
-| S02 | SM-101 outlet / R-101 feed |
-| S03 | R-101 outlet (crude reaction mixture) |
-| S04 | V-101 organic phase (Ketone, PhI, IBB) |
-| S05 | SM-102 outlet / R-102 feed |
-| S06 | R-102 outlet / V-102 feed |
-| S07 | V-102 liquid product / H-101 feed |
-| S08 | H-101 outlet (65°C, R-103 feed) |
-| S09 | NaOH (aq) feed stream |
-| S10 | R-103 outlet (saponification product) |
-| S11 | V-103 aqueous phase (IbupNa brine) |
-| S12 | V-103 organic phase (PhI + PhI_OAc2) |
-| S13 | V-104 acidification outlet (Ibuprofen slurry) |
-| S14 | CR-101 outlet (crystallised + hexane) |
-| S15 | DR-101 inlet (wet cake) |
-| S16 | PRODUCT — dry ibuprofen API |
+| S-01 | SM-101 combined feed |
+| S-02 | HX-101 outlet / R-101 feed (150°C) |
+| S-03 | R-101 outlet (Ketone, TfOH, H₂O) |
+| S-04 | HX-102 outlet (0°C, to V-101) |
+| S-05 | V-101 organic phase (Ketone, IBB, TfOH) |
+| S-06 | V-101 aqueous phase (Water, ProAc → C-101) |
+| S-07 | SM-102 combined feed |
+| S-08 | HX-103 outlet / R-102 feed (50°C) |
+| S-09 | R-102 outlet |
+| S-10 | V-102 vapor overhead (MeOH, TMOF, AcOH → C-103) |
+| S-11 | V-102 liquid bottoms (Ester, PhI) |
+| S-12 | SM-103 combined feed |
+| S-13 | R-103 outlet (IbupNa aq + PhI org) |
+| S-14 | HX-104 outlet (30°C, to V-103) |
+| S-15 | V-103 organic phase (PhI, Ketone) |
+| S-16 | V-103 aqueous phase (IbupNa brine → V-104) |
+| S-17 | V-104 acidification outlet (Ibuprofen free acid) |
+| S-19 | LLE organic extract (Ibuprofen + Hexane) |
+| S-27 | Final product — dry ibuprofen API |
 
 ---
 
 ## 4. Thermodynamic Models
 
-All phase equilibrium calculations use rigorous activity-coefficient methods, not simple flat partition factors.
+All phase equilibrium calculations use rigorous activity-coefficient methods, not flat partition factors.
 
-### 4.1 T-Dependent NRTL (v5)
+### 4.1 T-Dependent NRTL
 
-The Non-Random Two-Liquid model is used for all liquid-phase activity coefficients.
+The Non-Random Two-Liquid model is used for all liquid-phase activity coefficients, with temperature-dependent interaction parameters:
 
-**Parameter form (ChemSep convention):**
 ```
 τᵢⱼ(T) = aᵢⱼ + bᵢⱼ / T(K)
 ```
 
-Parameters are anchored at 25°C (298.15 K): `a = 0`, `b = τ_ref × 298.15`
+Parameters anchored at 25°C: `a = 0`, `b = τ_ref × 298.15`. DECHEMA-sourced for standard pairs (Water/MeOH, Water/AcOH, Water/ProAc, MeOH/AcOH); logP-calibrated for organic solutes vs. water.
 
-DECHEMA-sourced parameters are used for well-characterised pairs (Water/MeOH, Water/AcOH, Water/ProAc, MeOH/AcOH). Estimates calibrated to logP values are used for organic solute pairs (IBB, Ketone, PhI, Ibuprofen vs. Water).
+Temperature evaluation:
+- **V-101** at 0°C — cold LLE; τ reflects low-temperature immiscibility
+- **V-102** at 80°C — VLE flash
+- **V-103** at 25°C — reference temperature, strongest organic/aqueous immiscibility
 
-Temperature matters:
-- **V-101** at **0°C** (273 K): cold LLE after R-101 quench; τ values reflect low-temperature immiscibility (organics less soluble in the aqueous wash than at reactor temperature)
-- **V-102** at 80°C (353 K): τ values intermediate
-- **V-103** at 25°C (298 K): τ at reference, strongest immiscibility for ibuprofen/water
+### 4.2 LLE Flash Algorithm
 
-### 4.2 LLE Flash Algorithm (`nrtl_lle`)
+Rachford-Rice loop with iterative NRTL update:
 
-A Rachford-Rice flash loop with NRTL activity coefficient iteration:
-
-1. Initialise K-values: K = γ∞(water) × Setschenow / 1 (organic assumed ideal)
-2. Solve Rachford-Rice equation for vapour fraction β (= organic fraction)
+1. Initialise K from γ∞(water) × Setschenow factor
+2. Solve Rachford-Rice for organic fraction β
 3. Update phase compositions x_org, x_aq
-4. Recompute γ via NRTL for both phases
-5. Update K = γ_aq / γ_org × Setschenow correction
+4. Recompute γ from NRTL for both phases
+5. Update K = γ_aq / γ_org × Setschenow
 6. Repeat until max(|ΔK/K|) < 1×10⁻⁵
 
-Ionic species (NaOH, HCl, NaCl, IbupNa) are forced entirely to the aqueous phase.
+Ionic species (NaOH, HCl, NaCl, IbupNa) are forced to the aqueous phase.
 
-### 4.3 VLE Flash (`nrtl_vle_flash`)
+### 4.3 VLE Flash
 
-Used for V-102 (80°C, 0.25 bar vacuum flash). Modified Raoult's law:
-```
-y_i × P = x_i × γᵢ × Pᵢˢᵃᵗ(T)
-```
-Vapour pressures from Antoine equation (log₁₀(Pˢᵃᵗ/mmHg) = A − B/(T+C)). Heavy species (Ester, Ibuprofen, Ketone, PhI, PhI_OAc2) are forced to liquid phase.
-
-### 4.4 Extended Debye-Hückel (v5)
-
-Applied in the R-103/V-104 electrolyte section to compute ion activity coefficients in the concentrated NaOH/NaCl brine.
+Modified Raoult's law for V-102:
 
 ```
-log₁₀(γ±) = −A |z|² √I / (1 + √I)
+yᵢ × P = xᵢ × γᵢ × Pᵢˢᵃᵗ(T)
 ```
 
-where:
-- `A ≈ 0.5115` at 25°C; temperature-corrected as `A(T) = 0.5115 × (298.15/T)^1.5`
-- `I = ½ Σ cᵢ zᵢ²` [mol/L] — ionic strength
-- Ions tracked: Na⁺, OH⁻, H⁺, Cl⁻, IbupAnion⁻
+Vapour pressures from Antoine equation. Heavy species (Ester, Ibuprofen, Ketone, PhI, PhI(OAc)₂) forced to liquid.
 
-**Note:** The NaOH feed is highly concentrated (~42 wt%). At R-103 outlet, I ≈ 10.7 mol/L — well outside the Debye-Hückel valid range (I < 0.1 mol/L). The DH coefficients are therefore qualitative; a full Pitzer model would be needed for quantitative accuracy at this ionic strength.
+### 4.4 Setschenow Salting-Out
 
-### 4.5 Setschenow Salting-Out Correction (v5)
-
-For organic solute partitioning in NaCl brine (V-103 acidification product), the infinite-dilution activity coefficient is corrected:
+Applied in V-103 to correct partition coefficients for NaCl brine:
 
 ```
 ln(γ∞_salt) = ln(γ∞_water) + Ks × m_NaCl
 ```
 
-Where `Ks(Ibuprofen) = 0.150 L/mol` (literature value for NSAID-type molecules in NaCl).
+`Ks(Ibuprofen) = 0.150 L/mol` (Sangster 1997).
 
-This increases the K-value (organic/aqueous) for ibuprofen in V-103, improving predicted recovery.
+### 4.5 Extended Debye-Hückel
 
-### 4.6 Peng-Robinson EOS (v5)
-
-Used for R-101 volume calculation at 150°C / 17 bar (elevated temperature and pressure where liquid density deviates significantly from 25°C tabulated values).
+Ion activity coefficients at R-103 outlet (NaOH/NaCl brine):
 
 ```
-P = RT/(Vm−b) − a(T)/[Vm(Vm+b) + b(Vm−b)]
+log₁₀(γ±) = −A|z|²√I / (1 + √I)
 ```
 
-The cubic equation is solved for the liquid root (smallest positive Z), giving molar volume Vm and hence density. PR-EOS gives ρ ≈ 847 kg/m³ at 150°C/17 bar for the IBB-rich feed (vs. ~920 kg/m³ from tabulated 25°C density), increasing the calculated reactor volume by ~9%.
+`A(T) = 0.5115 × (298.15/T)^1.5`. Ions tracked: Na⁺, OH⁻, H⁺, Cl⁻, IbupAnion⁻.
+
+> **Note:** Valid range is I < 0.1 mol/L. Actual I ≈ 10.7 mol/L at R-103 outlet — results are qualitative. A Pitzer model would be needed for quantitative accuracy.
+
+### 4.6 Peng-Robinson EOS
+
+Used for R-101 volume at 150°C / 17 bar. Cubic solved for liquid root Z; gives ρ ≈ 847 kg/m³ vs. ~920 kg/m³ from tabulated 25°C density — increases calculated reactor volume by ~9%.
 
 ---
 
 ## 5. Equipment and Unit Operations
 
-### 5.1 Reactors
+### Reactors
 
-| Unit | Type | T (°C) | P (bar) | τ | Volume |
-|------|------|---------|---------|---|--------|
-| R-101 | CSTR | 150 | 17 | 3 min | ~6 m³ (PR-EOS density) |
-| R-102 | PFR (approximated as CSTR) | 50 | 17 | 5 min | ~0.4 m³ |
-| R-103 | PFR (approximated as CSTR) | 65 | 1.5 | 7.5 min | ~1 m³ |
+| Unit | Type | T (°C) | P (bar) | τ (min) | Volume |
+|------|------|---------|---------|---------|--------|
+| R-101 | PFR | 150 | 17 | 3 | PR-EOS calculated |
+| R-102 | PFR (4-stage injection) | 50 | 17 | 5 | Volumetric Q×τ |
+| R-103 | PFR | 65 | 1.5 | 7.5 | Volumetric Q×τ |
 
-### 5.2 Phase Separators (LLE)
+### Phase Separators
 
 | Unit | Function | T (°C) | Model |
 |------|----------|---------|-------|
 | V-101 | Organic/aqueous split after R-101 | 0 | NRTL LLE |
-| V-103 | Organic (PhI)/aqueous (IbupNa) split | 25 | NRTL LLE + Setschenow |
+| V-103 | PhI organic / IbupNa aqueous split | 25 | NRTL LLE + Setschenow |
 | V-104 | Acidification (IbupNa + HCl → Ibuprofen) | 25 | Stoichiometric |
 
-### 5.3 Flash Vessel
+### Flash Vessel
 
 | Unit | Function | T (°C) | P (bar) | Model |
 |------|----------|---------|---------|-------|
 | V-102 | Solvent stripping (MeOH, TMOF, AcOH) | 80 | 0.25 | NRTL VLE |
 
-### 5.4 Distillation Columns
+### Distillation Columns
 
-All columns are sized using the **Fenske-Underwood-Gilliland (FUG) shortcut** method plus an **F-factor column diameter** approach (Turton 2012).
+Sized using Fenske-Underwood shortcut + F-factor column diameter (Turton 2012).
 
-| Unit | Function | LK | HK | N_act | Duty (kW) |
-|------|----------|----|----|-------|-----------|
-| C-101 | TfOH/ProAc recovery | ProAc | TfOH | ~12 | Cond: −80, Reb: +95 |
-| C-102 | Hexane condensation | — | — | N/A | Cond: −45 |
-| C-103 | MeOH/TMOF-AcOH split | MeOH | TMOF | ~15 | Cond: −120, Reb: +140 |
+| Unit | Function | LK | HK | N actual | Q_cond (kW) | Q_reb (kW) |
+|------|----------|----|----|----------|-------------|------------|
+| C-101 | TfOH/ProAc recovery | ProAc | TfOH | ~12 | −80 | +95 |
+| C-102 | Hexane condensation | — | — | condenser only | −45 | — |
+| C-103 | MeOH/TMOF-AcOH split | MeOH | TMOF | ~15 | −120 | +140 |
 
-**Column diameter formula:**
-```
-D = sqrt(4 × Q_vap / (π × u_F))
-```
-where `Q_vap = F_feed × x_overhead × (1 + L/D) / ρ_vap`, `u_F = 0.7 m/s` (F-factor flooding velocity), `L/D = 1.5` (assumed).
+### Crystallisation Train
 
-### 5.5 Crystalliser and Dryer
-
-| Unit | Function | Notes |
-|------|----------|-------|
-| CR-101 | Ibuprofen crystallisation | Hexane antisolvent; 60 min RT; jacketed |
-| DR-101 | Spray/drum dryer | 120°C inlet; 98.5% moisture removal |
+| Unit | Function | Conditions |
+|------|----------|------------|
+| Hex-Flash | Hexane evaporation / solvent switch | 70°C, 0.9 bar, 97% hexane removal |
+| CR-101 | MeOH crystallisation | 45°C → 0°C, 0.138 kg/kg solubility at 0°C |
+| CF-101 | Rotary vacuum filter | 87% crystal recovery |
+| DR-101 | Vacuum dryer | 55°C, 50 mbar — hard limit <75°C (mp 77°C) |
 
 ---
 
-## 6. Recycle Convergence Strategy
+## 6. Recycle Convergence
 
-Four tear streams are solved simultaneously to close the recycle loops:
+Four tear streams closed by damped successive substitution:
 
-| Tear Stream | From | To | Converged Value |
-|-------------|------|----|-----------------|
+| Tear Stream | Source | Destination | SS Value |
+|-------------|--------|-------------|----------|
 | TfOH | C-101 bottoms | SM-101 | ~280 kg/hr |
 | TMOF | C-103 bottoms | SM-102 | ~620 kg/hr |
-| MeOH (S2) | C-103 overhead | SM-102 | ~750 kg/hr |
-| Hexane | C-102 overhead | CR-101 | ~395 kg/hr |
+| MeOH | C-103 overhead | SM-102 | ~750 kg/hr |
+| Hexane | C-102 condenser | LLE extractor | ~395 kg/hr |
 
-**Hexane** is solved analytically (per-pass retention factor = 0.98 × 0.97 × 0.97 ≈ 0.922; recycle = fresh × retention / (1 − retention)).
+**Hexane** solved analytically (per-pass retention = 0.98 × 0.97 × 0.97):
 
-**Reactive solvents** (TfOH, TMOF, MeOH) are converged by successive substitution (Wegstein acceleration):
+```
+tear_Hex_SS = F07_Hex × retention / (1 − retention)
+```
+
+**Reactive solvents** (TfOH, TMOF, MeOH) by damped successive substitution:
 
 ```python
 for iteration in range(MAX_ITER):
     res = run_simulation(tear_TfOH, tear_TMOF, tear_MeOH_S2, tear_Hex)
-    computed = [res["recycle_TfOH"], res["recycle_TMOF"], res["recycle_MeOH_S2"]]
-    if max(|Δ| / ref) < TOL:  break
-    tear = 0.5 * tear + 0.5 * computed   # damped update
+    err = max(|Δ| / ref for each tear)
+    if err < TOL:  break
+    tear = 0.35 * tear_old + 0.65 * tear_new   # damping factor 0.65
 ```
 
-Convergence tolerance: 0.1% on all tears. Typically converges in 8–12 iterations.
+Convergence tolerance: 0.01%. Typically converges in 8–12 iterations.
 
 ---
 
-## 7. Mass and Energy Balance Results
+## 7. Results
 
-### Design Specifications (all satisfied)
+### Design Specifications
 
-| Spec | Target | Result |
+| Spec | Target | Status |
 |------|--------|--------|
-| Ibuprofen production | 525 MT/yr | ✓ 525 MT/yr |
-| API purity | ≥99.9 wt% | ✓ 99.97 wt% |
-| TfOH recycle closure | >95% recovery | ✓ ~93% (fresh makeup required) |
-| MeOH recycle closure | >90% recovery | ✓ ~95% |
-| TMOF recycle closure | >90% recovery | ✓ ~94% |
-| Hexane recycle closure | >95% recovery | ✓ ~92.2% |
+| Annual production | ≥ 500 MT/yr | ✅ ~525 MT/yr |
+| API purity | > 99.0 wt% | ✅ 99.97 wt% |
+| Residual MeOH | < 3,000 ppm | ✅ |
+| V-101 water in organic | < 0.5 wt% | ✅ |
+| V-102 AcOH in bottoms | < 1.0 wt% | ✅ |
+| NaOH/Ester ratio | ≥ 1.0× | ✅ |
+| HCl coverage | ≥ 95% | ✅ |
+| C-101 relative volatility | α > 1 | ✅ |
+| C-103 relative volatility | α > 1 | ✅ |
 
-### Key Stream Summary
+### Key Stream Flows (converged)
 
 | Stream | Flow (kg/hr) | Key Components |
 |--------|-------------|----------------|
-| IBB fresh feed | ~88 kg/hr | 100% IBB |
-| PhI(OAc)₂ fresh | ~198 kg/hr | Stoichiometric oxidant |
-| NaOH feed (aq) | ~200 kg/hr | 40 wt% NaOH |
-| HCl feed | ~60 kg/hr | Conc. HCl |
-| Product (S16) | ~65.6 kg/hr | 99.97% Ibuprofen |
+| F-01 IBB | 134.0 | 100% IBB |
+| F-04 PhI(OAc)₂ | 327.0 | Stoichiometric oxidant |
+| F-05 NaOH (aq) | 24 NaOH + 56 H₂O | 30 wt% NaOH |
+| F-06 HCl (aq) | 18 HCl + 162 H₂O | 10 wt% HCl |
+| S-27 Product | ~65.6 | 99.97 wt% Ibuprofen |
 
-### Heat Duty Summary
+### Heat Duties
 
-| Unit | Duty (kW) | Type |
-|------|-----------|------|
-| R-101 heater | +180 | Process heating |
-| V-102 flash (vacuum) | −55 | Cooling |
-| R-103 heater | +35 | Process heating |
+| Unit | Duty (kW) | Utility |
+|------|-----------|---------|
+| HX-101 feed heater | +180 | MPS steam |
+| HX-102 R-101 cooler | −large | Chilled glycol |
+| HX-103 SM-102 heater | +small | LPS steam |
+| HX-104 R-103 cooler | −small | Cooling water |
 | C-101 condenser | −80 | Cooling water |
-| C-101 reboiler | +95 | Low-pressure steam |
+| C-101 reboiler | +95 | HPS steam |
 | C-103 condenser | −120 | Cooling water |
-| C-103 reboiler | +140 | Low-pressure steam |
-| CR-101 crystalliser | −45 | Refrigeration |
-| DR-101 dryer | +85 | Hot air |
+| C-103 reboiler | +140 | LPS steam |
+| CR-101 crystalliser | −45 | Chilled glycol |
 
 ---
 
-## 8. Economic Evaluation
+## 8. Economics
 
-All costs in **2026 USD** (CEPCI basis: 830 / 397 = 2.090, escalated from Turton 2012 correlations).
-- 2023 annual avg: 797.9 (confirmed, publicly available)
-- 2024 annual avg: ~800 (mid-year monthly data: Jun-2024 = 798.8)
-- 2025 annual avg: ~820–830 (Nov-2025 was +5.8% above Nov-2024; Jul-2025 was highest since Sep-2022)
-- 2026: no data yet (index lags ~2 months); 830 used as best proxy
+All costs in **2026 USD** (CEPCI 830 / 397 = 2.090, from Turton 2012 correlations).
 
-### 8.1 CAPEX
+### CAPEX Summary
 
-Equipment costs use Turton 2012 log-log correlations:
-```
-log₁₀(Cₚ) = K₁ + K₂ log₁₀(A) + K₃ [log₁₀(A)]²
-```
+| Item | Cost ($k) |
+|------|----------|
+| R-101, R-102, R-103 reactors | ~270 |
+| C-101, C-102, C-103 columns | ~530 |
+| V-101, V-102, V-103 separators | ~90 |
+| Heat exchangers | ~80 |
+| CR-101 crystalliser + filter + dryer | ~230 |
+| **Total Bare Module (ΣC_BM)** | **~1,200** |
+| FCI (× 1.18 contingency + fees) | ~1,416 |
+| Working capital (15% FCI) | ~212 |
+| **TCI** | **~$1.63M** |
 
-| Item | Cost (2026 $k) |
-|------|---------------|
-| R-101 (CSTR, 6 m³) | ~180 |
-| R-102 (PFR, 0.4 m³) | ~35 |
-| R-103 (CSTR, 1 m³) | ~55 |
-| C-101 (column + HX) | ~210 |
-| C-102 (condenser) | ~40 |
-| C-103 (column + HX) | ~280 |
-| V-101, V-103, V-104 separators | ~90 |
-| CR-101 crystalliser | ~95 |
-| DR-101 dryer | ~65 |
-| Heat exchangers (misc) | ~80 |
-| **Total Bare Module (ΣC_BM)** | **~1,130** |
-| Lang factor × 1.18 (fees + contingency) | **~1,333** |
-| Working capital (~15%) | **~200** |
-| **TCI** | **~$1.53M** |
+### OPEX
 
-### 8.2 OPEX — Raw Materials (dominant cost)
+| Category | Annual Cost |
+|----------|-------------|
+| PhI(OAc)₂ (dominant) | ~$65.4M/yr |
+| IBB | ~$2.1M/yr |
+| TfOH (makeup only) | ~$0M/yr (recycled) |
+| NaOH, HCl | ~$0.2M/yr |
+| Utilities (all) | ~$0.2M/yr |
+| Labor + overhead | ~$2.1M/yr |
+| **Total OPEX** | **~$70M/yr** |
 
-| Material | Rate (kg/hr) | Unit cost | Annual cost |
-|----------|-------------|-----------|-------------|
-| PhI(OAc)₂ | ~198 kg/hr | ~$200/kg | **~$39.6M/yr** |
-| IBB | ~88 kg/hr | ~$15/kg | ~$10.6M/yr |
-| NaOH (40% aq) | ~200 kg/hr | ~$0.50/kg | ~$0.8M/yr |
-| HCl | ~60 kg/hr | ~$0.30/kg | ~$0.14M/yr |
-| TfOH (makeup) | ~20 kg/hr | ~$50/kg | ~$8.0M/yr |
-| **Total Raw Materials** | | | **~$59.1M/yr** |
-
-### 8.3 OPEX — Utilities
-
-| Utility | Usage | Annual cost |
-|---------|-------|-------------|
-| Steam (LP, 150°C) | ~335 kW | ~$85k/yr |
-| Cooling water | ~255 kW | ~$15k/yr |
-| Refrigeration | ~45 kW | ~$35k/yr |
-| Electricity | ~80 kW | ~$56k/yr |
-| Hot air (dryer) | ~85 kW | ~$22k/yr |
-| **Total Utilities** | | **~$213k/yr** |
-
-### 8.4 Revenue and Profitability
+### Revenue and Profitability
 
 | Item | Value |
 |------|-------|
-| Production | 525 MT/yr |
-| Ibuprofen price | ~$27/kg (bulk API) |
-| **Revenue** | **~$14.2M/yr** |
-| Raw materials | −$59.1M/yr |
-| Utilities | −$0.21M/yr |
-| Labour + overhead (~10% FCI/yr) | −$0.15M/yr |
-| **EBITDA** | **−$45M/yr** |
+| Ibuprofen API (~525 MT/yr × $20/kg) | ~$84M/yr |
+| PhI byproduct | ~$1M/yr |
+| **Total Revenue** | **~$85M/yr** |
+| **EBITDA (base case)** | **~$15M/yr** |
 
-### ⚠️ Critical Economic Driver: PhI(OAc)₂
-
-PhI(OAc)₂ at $200/kg and stoichiometric consumption (1 mol per mol IBB) is completely dominant. The process is **uneconomical without PhI regeneration**. The Bogdan 2009 paper acknowledges this and notes that PhI byproduct can be re-oxidised:
-
-```
-PhI + H₂O₂ + Ac₂O → PhI(OAc)₂ + H₂O
-```
-
-**With PhI recycle (assuming 95% reoxidation efficiency):** Reagent cost drops to ~$2M/yr → EBITDA improves to ~+$12M/yr → commercially viable.
+> ⚠️ **Critical driver:** PhI(OAc)₂ dominates raw material cost. The process economics improve dramatically with PhI regeneration: `PhI + H₂O₂ + Ac₂O → PhI(OAc)₂`. With 95% reoxidation efficiency, reagent cost drops to ~$2M/yr and the process becomes clearly profitable.
 
 ---
 
 ## 9. Code Architecture
 
-### Module / Section Map
-
 ```
 ibuprofen_sim.py
 │
-├── Section 0:  Constants & data tables
-│               MW, RHO, CP, DHV, BP dictionaries (17 components)
+├── Section 0   Constants & data tables
+│               MW, RHO, CP, DHV, BP for 17 components
 │
-├── Section 1:  Stream class and utility functions
+├── Section 1   Stream class and utility functions
 │               Stream dataclass, mix(), heater_duty(), volumetric_flow()
 │
-├── Section 1b: NRTL thermodynamics
-│               Antoine equation, T-dependent NRTL binary parameters,
+├── Section 1b  NRTL thermodynamics
+│               Antoine equation, T-dependent binary parameters,
 │               _build_nrtl(), nrtl_lle(), nrtl_vle_flash()
 │
-├── Section 1c: Electrolytes + Setschenow + PR-EOS  [NEW in v5]
-│               dissociate_stream(), ionic_strength(), debye_huckel_gamma()
-│               setschenow_factor(), pr_liquid_Vm(), pr_mixture_density()
+├── Section 1c  Electrolytes + Setschenow + PR-EOS
+│               dissociate_stream(), ionic_strength()
+│               debye_huckel_gamma(), setschenow_factor()
+│               pr_liquid_Vm(), pr_mixture_density()
 │
-├── Section 2:  Column models (C-101, C-102, C-103)
-│               Fenske Nmin, relative volatility, split_stream()
+├── Section 2   Column models (C-101, C-102, C-103)
+│               Fenske Nmin, relative_volatility(), split_stream()
 │               condenser_duty(), reboiler_duty()
 │
-├── Section 3:  run_simulation() — main flowsheet function
-│               Takes 4 tear streams as arguments
-│               Returns dict of all results (streams, duties, specs)
+├── Section 3   run_simulation()  ← main flowsheet function
+│               Takes 4 tear streams; returns full results dict
 │
-├── Section 4:  Recycle convergence loop
-│               Hexane: analytical
-│               TfOH/TMOF/MeOH: successive substitution + damping
+├── Section 4   Recycle convergence loop
+│               Hexane: analytical steady-state
+│               TfOH/TMOF/MeOH: damped successive substitution
 │
-├── Section 5:  Results reporting (print to console)
-│               Section headers, stream tables, spec checks, electrolyte
-│               analysis, column/reactor sizing, utility summary
+├── Section 5   Console results reporting
+│               Stream table, spec checks, column/reactor sizing
 │
-├── Section 6:  Economic evaluation
-│               Turton 2012 correlations, CEPCI 2026 escalation
-│               _turton_Cp(), _vessel_Cp(), _hx_Cp(), _column_cost()
-│               CAPEX table, OPEX (RM + utilities), P&L
+├── Section 6   Economic evaluation
+│               Turton 2012 + CEPCI 2026; CAPEX, OPEX, P&L
 │
-└── Section 7:  Excel export (openpyxl)
-                12 sheets: README, Stream Table, Stream Summary,
-                Heat Duties, Reactor Sizing, Column Sizing, CAPEX,
-                Raw Materials, Utilities, P&L, Process Metrics,
-                Electrolyte Model
+└── Section 7   Excel export (openpyxl)
+                12 sheets — see below
 ```
 
 ### Key Functions
 
 | Function | Description |
 |----------|-------------|
-| `run_simulation(tear_TfOH, tear_TMOF, tear_MeOH_S2, tear_Hex)` | Full flowsheet — returns all stream and duty results |
+| `run_simulation(tear_TfOH, tear_TMOF, tear_MeOH_S2, tear_Hex)` | Full flowsheet pass; returns all stream and duty results |
 | `nrtl_lle(feed, T_C, forced_aq, forced_org)` | Two-phase LLE flash with NRTL + Setschenow |
 | `nrtl_vle_flash(feed, T_C, P_bar)` | Two-phase VLE flash with NRTL + Antoine |
-| `dissociate_stream(stream)` | Converts NaOH/HCl/IbupNa/NaCl to explicit ion flows [mol/hr] |
-| `ionic_strength(ions, water_kg_hr)` | Computes I [mol/L] from ion flows |
-| `debye_huckel_gamma(z, I, T_K)` | Extended Debye-Hückel activity coefficient |
-| `setschenow_factor(comp, m_nacl)` | Salting-out correction multiplier on K-value |
-| `pr_liquid_Vm(comp, T_K, P_bar)` | PR-EOS liquid molar volume [cm³/mol] |
-| `pr_mixture_density(stream, T_K, P_bar)` | Mixture density [kg/m³] from PR-EOS |
-| `_column_cost(N_act, Q_cond, Q_reb, feed_kghr, overhead_frac, P_bar)` | Turton column CAPEX [$2026] |
+| `dissociate_stream(stream)` | NaOH/HCl/IbupNa/NaCl → explicit ion flows (mol/hr) |
+| `ionic_strength(ions, water_kg_hr)` | Computes I (mol/L) from ion flows |
+| `debye_huckel_gamma(z, I, T_K)` | Extended Debye-Hückel γ± |
+| `setschenow_factor(comp, m_nacl)` | Salting-out multiplier on K-value |
+| `pr_liquid_Vm(comp, T_K, P_bar)` | PR-EOS liquid molar volume (cm³/mol) |
+| `pr_mixture_density(stream, T_K, P_bar)` | Mixture density (kg/m³) from PR-EOS |
 
 ### Dependencies
 
-```
+```bash
 pip install pandas numpy scipy tabulate thermo chemicals openpyxl
 ```
 
-| Package | Purpose |
-|---------|---------|
+| Package | Role |
+|---------|------|
 | `numpy` | Array operations, PR-EOS cubic solver |
-| `scipy.optimize.brentq` | Rachford-Rice equation root-finding |
+| `scipy.optimize.brentq` | Rachford-Rice root-finding |
 | `thermo.NRTL_gammas` | NRTL activity coefficient computation |
 | `pandas` | DataFrame construction for Excel export |
 | `tabulate` | Console table formatting |
@@ -520,68 +502,71 @@ pip install pandas numpy scipy tabulate thermo chemicals openpyxl
 ## 10. Assumptions and Limitations
 
 ### Chemistry
-- **R-101:** **72%** IBB conversion (`X_R101`) — conservative production-scale assumption; not the near-quantitative literature case
-- **R-102:** **75%** conversion on limiting reagents (`X_R102`)
-- **R-103:** **90%** ester saponification (`X_R103`) with excess NaOH in the feed
-- **No side reactions** modelled (some diacetate and over-oxidation are possible in R-101)
+- Conversions (72% / 75% / 90%) are conservative production-scale assumptions vs. near-quantitative lab values
+- No side reactions modelled (diacetate formation, over-oxidation possible in R-101)
+- TMOF treated as stoichiometric co-reagent — consumes 1 mol per mol ester
 
 ### Thermodynamics
-- NRTL parameters for unusual pairs (TfOH/IBB, TMOF/AcOH) are **estimated** — not from DECHEMA
-- Debye-Hückel is valid only for I < ~0.1 mol/L; the actual I ≈ 10.7 mol/L at R-103 — **well outside valid range**; a Pitzer model would be needed
-- PR-EOS Tc/Pc/ω for some components are estimated from group contributions
-- Antoine constants for heavy organics (Ester, Ibuprofen) are Clausius-Clapeyron estimates
+- NRTL parameters for uncommon pairs (TfOH/IBB, TMOF/AcOH) are **estimated**, not from DECHEMA
+- Debye-Hückel valid for I < 0.1 mol/L; actual I ≈ 10.7 mol/L at R-103 — qualitative only (Pitzer model needed)
+- Antoine constants for Ester and Ibuprofen are Clausius-Clapeyron estimates
+- PR-EOS Tc/Pc/ω for some components estimated from group contributions
 
-### Equipment sizing
+### Equipment
 - Column tray count from Fenske shortcut — rigorous plate-by-plate would change N by ±30%
-- Column diameter uses a simple F-factor approach; actual sizing requires flood curve calculations
-- Reactor volumes are preliminary — no detailed flow/mixing analysis
+- Reactor volumes are preliminary — no detailed mixing or flow analysis
+- No heat exchanger network optimisation
 
 ### Economics
-- PhI(OAc)₂ price assumed $200/kg — actual market price varies widely, often much higher for reagent grade
-- **No PhI recycle included in base case** — the dominant cost driver
-- CEPCI 2026 ≈ 850 is an **estimate** (exact values are subscription-only)
-- Lang factor 1.18 is appropriate for fluids processing; actual factor depends on material of construction
+- PhI(OAc)₂ price assumed $25/kg reagent grade (actual market price varies significantly)
+- Base case does not include PhI regeneration loop — this is the dominant cost driver
+- CEPCI 2026 ≈ 830 is an estimate (subscription required for exact values)
 
-### What this simulation does NOT model
-- Detailed column internal hydraulics (weeping, entrainment, downcomer backup)
-- Transient startup / shutdown behaviour
-- Solid handling equipment for crystalliser/centrifuge
-- Detailed heat exchanger network (HEN) optimisation
-- Safety analysis (HAZOP, Dow F&EI)
-- Environmental / waste treatment (NaCl brine disposal, AcOH recovery)
+### Not modelled
+- Column hydraulics (weeping, flooding, downcomer backup)
+- Transient startup/shutdown
+- Detailed solid handling (centrifuge, conveying)
+- HAZOP / safety analysis
+- Environmental treatment (NaCl brine, AcOH disposal)
 
 ---
 
 ## 11. How to Run
 
-### Prerequisites
+### Install dependencies
+
 ```bash
 pip install pandas numpy scipy tabulate thermo chemicals openpyxl
 ```
 
-### Run
+### Run simulation
+
 ```bash
 python3 ibuprofen_sim.py
 ```
 
-### Output
-- **Console:** Full process report — recycle convergence, stream table, specs, economic summary
-- **`ibuprofen_sim_results.xlsx`:** 12-sheet Excel workbook (auto-generated in working directory)
+### Outputs
 
-### Excel Workbook Sheets
+| Output | Description |
+|--------|-------------|
+| Console | Recycle convergence table, stream table, spec checks, economic summary |
+| `ibuprofen_sim_results.xlsx` | 12-sheet workbook, auto-generated in working directory |
+
+### Excel workbook sheets
+
 | # | Sheet | Contents |
-|---|-------|---------|
-| 1 | README | Simulation description and version notes |
+|---|-------|----------|
+| 1 | README | Summary and version notes |
 | 2 | Stream Table (Full) | All kg/hr flows for every component in every stream |
-| 3 | Stream Summary | Total flow, T, P, dominant compositions |
-| 4 | Heat Duties | All heater/cooler/condenser/reboiler duties (kW) |
-| 5 | Reactor Sizing | CSTR volumes, residence times, operating conditions |
-| 6 | Column Sizing | N_act, D, H, duties for C-101/C-103 |
-| 7 | CAPEX | Bare-module and TCI breakdown (2026 $) |
+| 3 | Stream Summary | Total flow, T, P, dominant compositions (top 5) |
+| 4 | Heat Duties | All heater/cooler/condenser/reboiler duties (kW, MW, GJ/yr) |
+| 5 | Reactor Sizing | Volumes, residence times, PR-EOS density, imperial units |
+| 6 | Column Sizing | N_act, D, H, duties, Turton cost for C-101/C-103 |
+| 7 | CAPEX | Bare-module costs, FCI breakdown (Turton 2012, CEPCI 2026) |
 | 8 | Raw Materials | Fresh feed rates and annual costs |
-| 9 | Utilities | Steam, CW, refrigeration, electricity (kW and $/yr) |
-| 10 | P&L | Revenue, OPEX, EBITDA, gross margin |
-| 11 | Process Metrics | Key design specs and convergence checks |
+| 9 | Utilities | Steam, CW, refrigeration, electricity (kW, GJ/yr, $/yr) |
+| 10 | P&L | Revenue, OPEX, EBITDA, NPV, payback, unit production cost |
+| 11 | Process Metrics | Key specs, step yields, recycle convergence values |
 | 12 | Electrolyte Model | Ion flows, ionic strength, Debye-Hückel coefficients |
 
 ---
@@ -590,14 +575,15 @@ python3 ibuprofen_sim.py
 
 | Version | Key Changes |
 |---------|-------------|
-| **v1** | Initial flowsheet; feed sizing; flat partition factors |
-| **v2** | Feed sizing fixes; dryer bug fix; mother-liquor recycle |
-| **v3** | Distillation column models (C-101/102/103); Fenske shortcut; full 4-stream tear-stream convergence loop |
-| **v4** | NRTL thermodynamics for V-101, V-102, V-103 (replaces flat partitions); Rachford-Rice LLE flash; NRTL VLE flash with Antoine equation |
-| **v5** | T-dependent NRTL τ(T) = a + b/T; electrolyte ion tracking (Na⁺, OH⁻, H⁺, Cl⁻, IbupAnion⁻); extended Debye-Hückel activity coefficients; Setschenow salting-out; PR-EOS liquid density; economic evaluation (Turton 2012 + CEPCI); Excel export |
-| **v5.1** | Bug fixes: ionic strength unit conversion (×1000 kmol→mol); column vapor sizing reflux ratio (×(1+L/D)); cost updated to CEPCI 2026 basis |
-| **v5.2** | Documentation aligned with `ibuprofen_sim.py` (conversions, R-101/R-103 residence times, V-101/V-102 conditions); repository link; `PROCESS_DESCRIPTION.md` cross-reference |
+| v1 | Initial flowsheet; feed sizing; flat partition factors |
+| v2 | Feed sizing fixes; dryer bug fix; mother-liquor recycle |
+| v3 | Distillation column models (C-101/102/103); Fenske shortcut; full 4-stream tear-stream convergence |
+| v4 | NRTL thermodynamics for V-101, V-102, V-103 (replaces flat partitions); Rachford-Rice LLE/VLE flash |
+| v5 | T-dependent NRTL τ(T) = a + b/T; electrolyte ion tracking; Debye-Hückel; Setschenow salting-out; PR-EOS density; Turton 2012 economics; Excel export |
+| v5.1 | Bug fixes: ionic strength unit conversion; column vapour sizing reflux ratio; CEPCI updated to 2026 basis |
+| v5.2 | Documentation aligned with code (conversions, temperatures, stream numbering); GitHub README rewrite |
 
 ---
 
-*Simulation authored for CBE design project. Route based on: Bogdan, A.R. et al., "The Continuous-Flow Synthesis of Ibuprofen," Angew. Chem. Int. Ed. 2009, 48, 8547–8550.*
+*Route based on: Bogdan, A.R. et al., "The Continuous-Flow Synthesis of Ibuprofen," Angew. Chem. Int. Ed. 2009, 48, 8547–8550.*  
+*Scale-up reference: Jolliffe, H.G. & Gerogiorgis, D.I., Chem. Eng. Res. Des. 2015, 97, 175–191.*
