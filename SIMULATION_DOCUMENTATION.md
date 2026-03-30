@@ -1,8 +1,11 @@
 # Ibuprofen Continuous Flow Simulation — Full Documentation
 **Route:** Bogdan 2009 (hypervalent iodine oxidation)
-**Version:** v5 (Aspen-level thermodynamic fidelity)
+**Version:** v5.2 docs / v5 model (Aspen-level thermodynamic fidelity)
 **File:** `ibuprofen_sim.py`
 **Output:** `ibuprofen_sim_results.xlsx` (12-sheet workbook)
+**Repository:** [github.com/jihanraiyan/cont_ibuprofen_python_sim](https://github.com/jihanraiyan/cont_ibuprofen_python_sim)
+
+**Related:** `PROCESS_DESCRIPTION.md` is a complementary narrative (process rationale and stream-level discussion). **Authoritative** stoichiometry, conversions, temperatures, and stream numbering are always those implemented in `ibuprofen_sim.py`.
 
 ---
 
@@ -26,7 +29,7 @@
 
 This simulation models the continuous manufacture of pharmaceutical-grade ibuprofen using the **Bogdan 2009 continuous flow route**, as published in *Angewandte Chemie* (DOI: 10.1002/anie.200900575). It is a steady-state mass-and-energy balance simulation written in pure Python, targeting the fidelity of a preliminary Aspen Plus flowsheet.
 
-**Design target:** 525 MT/yr ibuprofen API (≥99.9 wt% purity), operating 8,000 hr/yr.
+**Design target:** ~525 MT/yr ibuprofen API (≥99.9 wt% purity), operating 8,000 hr/yr — sized from the converged mass balance in code (not a hard-coded constant).
 
 The simulation is self-contained and runs end-to-end in a single script, covering:
 - Feed sizing and fresh-feed calculations
@@ -48,10 +51,10 @@ The Bogdan 2009 route converts **isobutylbenzene (IBB)** to ibuprofen in three c
 
 ### Step 1 — Ritter-type Acylation (R-101)
 **Reaction:** IBB + Propionic Acid (ProAc) + PhI(OAc)₂ → Aryl Ketone (Ketone) + PhI + 2 AcOH
-**Conditions:** 150°C, 17 bar, 30 min residence time
+**Conditions:** 150°C, 17 bar, 3 min residence time (Friedel–Crafts acylation step)
 **Catalyst/Reagent:** Phenyliodine diacetate (PhI(OAc)₂) — hypervalent iodine oxidant
 **Solvent:** Triflic acid (TfOH) — strong acid activator
-**Conversion:** ~100% (excess PhI(OAc)₂ drives to completion)
+**Conversion:** **72%** of IBB (limited conversion vs. paper; unreacted IBB carried forward — see `X_R101` in `ibuprofen_sim.py`)
 
 The aryl ketone intermediate (4-isobutylacetophenone) is the central intermediate. PhI(OAc)₂ is consumed stoichiometrically; PhI is a byproduct that is recovered and could be re-oxidised to close the reagent loop.
 
@@ -60,14 +63,16 @@ The aryl ketone intermediate (4-isobutylacetophenone) is the central intermediat
 **Conditions:** 50°C, 5 min residence time
 **Reagents:** TMOF, methanol (proton source)
 **Byproducts:** Methyl orthoformate hydrolysis products (MeOH, AcOH equivalents)
+**Conversion:** **75%** of limiting ketone / oxidant (`X_R102` in code).
 
 The ester intermediate (methyl ester of ibuprofen) is formed by orthoester condensation.
 
 ### Step 3 — Saponification / Acidification (R-103, V-104)
 **Reaction:** Ester + NaOH → IbupNa (sodium ibuprofen) + MeOH
           IbupNa + HCl → Ibuprofen (free acid) + NaCl
-**Conditions:** R-103 at 70°C / 1.5 bar; acidification at ambient
-**Reagents:** 40 wt% NaOH (aq); concentrated HCl
+**Conditions:** R-103 at **65°C** / 1.5 bar (Bogdan Table 4 / `ibuprofen_sim.py`); acidification at ambient
+**Conversion:** **90%** of limiting ester / NaOH (`X_R103` in code).
+**Reagents:** 30 wt% NaOH (aq) in code (`F-05`); concentrated HCl (`F-06`)
 **Product:** Ibuprofen free acid precipitates from aqueous NaCl brine
 
 ---
@@ -84,10 +89,10 @@ FRESH FEEDS
                                                [SM-101 Mixer]
                                                      │ S02
                                                      ▼
-                                               [R-101 CSTR]   150°C / 17 bar / 30 min
+                                               [R-101 CSTR]   150°C / 17 bar / 3 min
                                                      │ S03 (Ketone, PhI, AcOH, IBB traces)
                                                      ▼
-                                               [V-101 LLE]    NRTL liquid-liquid split
+                                               [V-101 LLE]    0°C, NRTL liquid-liquid split
                                               /             \
                               organic (S04)                  aq (TfOH wash → C-101)
                                     │                              │
@@ -99,16 +104,16 @@ FRESH FEEDS
                                [R-102 PFR]   50°C / 5 min
                                     │ S06
                                     ▼
-                               [V-102 VLE Flash]  80°C / 0.3 bar (vacuum)
+                               [V-102 VLE Flash]  80°C / 0.25 bar (vacuum)
                               /                  \
                   vapor (MeOH, TMOF, AcOH)        liquid (Ester, Ketone, PhI, Water)
                         │                                    │ S07
                         ▼                                    ▼
-                   [C-103 Column]                      [H-101 Heater]  → 70°C
+                   [C-103 Column]                      [H-101 Heater]  → 65°C
                    MeOH overhead                              │ S08
                    TMOF/AcOH bottoms                          ▼
-                   recycles → SM-102                    [R-103 CSTR]   70°C / 1.5 bar
-                                                        + NaOH (aq) / 20 min
+                   recycles → SM-102                    [R-103 PFR]    65°C / 1.5 bar
+                                                        + NaOH (aq) / 7.5 min
                                                               │ S10 (IbupNa aq + PhI org)
                                                               ▼
                                                         [V-103 LLE]   NRTL
@@ -144,7 +149,7 @@ FRESH FEEDS
 | S05 | SM-102 outlet / R-102 feed |
 | S06 | R-102 outlet / V-102 feed |
 | S07 | V-102 liquid product / H-101 feed |
-| S08 | H-101 outlet (70°C) |
+| S08 | H-101 outlet (65°C, R-103 feed) |
 | S09 | NaOH (aq) feed stream |
 | S10 | R-103 outlet (saponification product) |
 | S11 | V-103 aqueous phase (IbupNa brine) |
@@ -174,7 +179,7 @@ Parameters are anchored at 25°C (298.15 K): `a = 0`, `b = τ_ref × 298.15`
 DECHEMA-sourced parameters are used for well-characterised pairs (Water/MeOH, Water/AcOH, Water/ProAc, MeOH/AcOH). Estimates calibrated to logP values are used for organic solute pairs (IBB, Ketone, PhI, Ibuprofen vs. Water).
 
 Temperature matters:
-- **V-101** at 150°C (423 K): τ values are smaller → less immiscibility (organics slightly more soluble in TfOH/water wash)
+- **V-101** at **0°C** (273 K): cold LLE after R-101 quench; τ values reflect low-temperature immiscibility (organics less soluble in the aqueous wash than at reactor temperature)
 - **V-102** at 80°C (353 K): τ values intermediate
 - **V-103** at 25°C (298 K): τ at reference, strongest immiscibility for ibuprofen/water
 
@@ -193,7 +198,7 @@ Ionic species (NaOH, HCl, NaCl, IbupNa) are forced entirely to the aqueous phase
 
 ### 4.3 VLE Flash (`nrtl_vle_flash`)
 
-Used for V-102 (80°C, 0.3 bar vacuum flash). Modified Raoult's law:
+Used for V-102 (80°C, 0.25 bar vacuum flash). Modified Raoult's law:
 ```
 y_i × P = x_i × γᵢ × Pᵢˢᵃᵗ(T)
 ```
@@ -244,15 +249,15 @@ The cubic equation is solved for the liquid root (smallest positive Z), giving m
 
 | Unit | Type | T (°C) | P (bar) | τ | Volume |
 |------|------|---------|---------|---|--------|
-| R-101 | CSTR | 150 | 17 | 30 min | ~6 m³ (PR-EOS density) |
-| R-102 | PFR (approximated as CSTR) | 50 | 5 | 5 min | ~0.4 m³ |
-| R-103 | CSTR | 70 | 1.5 | 20 min | ~1 m³ |
+| R-101 | CSTR | 150 | 17 | 3 min | ~6 m³ (PR-EOS density) |
+| R-102 | PFR (approximated as CSTR) | 50 | 17 | 5 min | ~0.4 m³ |
+| R-103 | PFR (approximated as CSTR) | 65 | 1.5 | 7.5 min | ~1 m³ |
 
 ### 5.2 Phase Separators (LLE)
 
 | Unit | Function | T (°C) | Model |
 |------|----------|---------|-------|
-| V-101 | Organic/aqueous split after R-101 | 150 | NRTL LLE |
+| V-101 | Organic/aqueous split after R-101 | 0 | NRTL LLE |
 | V-103 | Organic (PhI)/aqueous (IbupNa) split | 25 | NRTL LLE + Setschenow |
 | V-104 | Acidification (IbupNa + HCl → Ibuprofen) | 25 | Stoichiometric |
 
@@ -260,7 +265,7 @@ The cubic equation is solved for the liquid root (smallest positive Z), giving m
 
 | Unit | Function | T (°C) | P (bar) | Model |
 |------|----------|---------|---------|-------|
-| V-102 | Solvent stripping (MeOH, TMOF, AcOH) | 80 | 0.3 | NRTL VLE |
+| V-102 | Solvent stripping (MeOH, TMOF, AcOH) | 80 | 0.25 | NRTL VLE |
 
 ### 5.4 Distillation Columns
 
@@ -515,9 +520,9 @@ pip install pandas numpy scipy tabulate thermo chemicals openpyxl
 ## 10. Assumptions and Limitations
 
 ### Chemistry
-- **100% conversion** assumed for R-101 (Bogdan 2009 reports ~quantitative yield)
-- **R-102** (orthoformate condensation) assumed 95% conversion — literature yields are 90–98%
-- **R-103** saponification assumed 100% (fast irreversible reaction with excess NaOH)
+- **R-101:** **72%** IBB conversion (`X_R101`) — conservative production-scale assumption; not the near-quantitative literature case
+- **R-102:** **75%** conversion on limiting reagents (`X_R102`)
+- **R-103:** **90%** ester saponification (`X_R103`) with excess NaOH in the feed
 - **No side reactions** modelled (some diacetate and over-oxidation are possible in R-101)
 
 ### Thermodynamics
@@ -591,6 +596,7 @@ python3 ibuprofen_sim.py
 | **v4** | NRTL thermodynamics for V-101, V-102, V-103 (replaces flat partitions); Rachford-Rice LLE flash; NRTL VLE flash with Antoine equation |
 | **v5** | T-dependent NRTL τ(T) = a + b/T; electrolyte ion tracking (Na⁺, OH⁻, H⁺, Cl⁻, IbupAnion⁻); extended Debye-Hückel activity coefficients; Setschenow salting-out; PR-EOS liquid density; economic evaluation (Turton 2012 + CEPCI); Excel export |
 | **v5.1** | Bug fixes: ionic strength unit conversion (×1000 kmol→mol); column vapor sizing reflux ratio (×(1+L/D)); cost updated to CEPCI 2026 basis |
+| **v5.2** | Documentation aligned with `ibuprofen_sim.py` (conversions, R-101/R-103 residence times, V-101/V-102 conditions); repository link; `PROCESS_DESCRIPTION.md` cross-reference |
 
 ---
 

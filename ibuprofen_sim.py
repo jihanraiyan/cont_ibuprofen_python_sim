@@ -21,7 +21,8 @@ from thermo import NRTL_gammas as _nrtl_gammas
 MW = {
     "IBB": 134.22, "ProAc": 74.08, "TfOH": 150.07, "Water": 18.015,
     "Ketone": 190.28, "PhI_OAc2": 322.90, "TMOF": 106.12, "MeOH": 32.04,
-    "PhI": 204.01, "AcOH": 60.052, "Ester": 206.28, "Ibuprofen": 206.28,
+    "PhI": 204.01, "AcOH": 60.052, "Ester": 220.31, "Ibuprofen": 206.28,
+    "HCOOCH3": 60.05,
     "IbupNa": 228.26, "NaOH": 40.00, "HCl": 36.46, "NaCl": 58.44,
     "Hexane": 86.18,
 }
@@ -29,7 +30,8 @@ MW = {
 RHO = {   # liquid density kg/m³ (~25°C)
     "IBB": 853, "ProAc": 993, "TfOH": 1696, "Water": 1000,
     "Ketone": 960, "PhI_OAc2": 1500, "TMOF": 967, "MeOH": 791,
-    "PhI": 1823, "AcOH": 1049, "Ester": 955, "Ibuprofen": 1030,
+    "PhI": 1850, "AcOH": 1049, "Ester": 1100, "Ibuprofen": 1030,
+    "HCOOCH3": 980,
     "IbupNa": 1200, "NaOH": 1100, "HCl": 1050, "NaCl": 2165,
     "Hexane": 655,
 }
@@ -38,6 +40,7 @@ CP = {    # liquid Cp kJ/(kg·K)
     "IBB": 1.80, "ProAc": 2.20, "TfOH": 1.40, "Water": 4.18,
     "Ketone": 1.90, "PhI_OAc2": 1.60, "TMOF": 1.95, "MeOH": 2.53,
     "PhI": 1.20, "AcOH": 2.05, "Ester": 1.90, "Ibuprofen": 1.90,
+    "HCOOCH3": 1.56,
     "IbupNa": 1.80, "NaOH": 4.00, "HCl": 3.90, "NaCl": 3.80,
     "Hexane": 2.26,
 }
@@ -46,6 +49,7 @@ DHV = {   # latent heat of vaporisation kJ/kg at normal bp
     "Water": 2260, "MeOH": 1100, "AcOH": 406, "TMOF": 349,
     "Hexane": 335, "TfOH": 300, "ProAc": 689, "IBB": 345,
     "PhI": 289, "Ester": 280, "Ketone": 300, "Ibuprofen": 280,
+    "HCOOCH3": 481,
     "IbupNa": 300, "NaOH": 4200, "HCl": 444, "PhI_OAc2": 250,
     "NaCl": 3300,
 }
@@ -54,6 +58,7 @@ BP = {    # normal boiling points °C (atmospheric)
     "Water": 100, "MeOH": 65, "AcOH": 118, "TMOF": 103,
     "Hexane": 69, "TfOH": 162, "ProAc": 141, "IBB": 172,
     "PhI": 188, "Ester": 296, "Ketone": 270, "Ibuprofen": 390,
+    "HCOOCH3": 32,
     "IbupNa": 800, "NaOH": 1388, "NaCl": 1413, "HCl": -85,
     "PhI_OAc2": 230,
 }
@@ -138,7 +143,7 @@ _ANT = {
     "TfOH":      (7.200,  1900.0,  200.0),
     "TMOF":      (7.100,  1450.0,  215.0),
     "IBB":       (7.100,  1800.0,  209.0),
-    "PhI":       (7.050,  1900.0,  200.0),
+    "PhI":       (7.014,  1617.0,  208.8),  # G2: CRC Handbook (iodobenzene, BP=188.4°C)
     "Ketone":    (7.000,  2500.0,  200.0),
     "Ester":     (7.000,  3200.0,  200.0),
     "Ibuprofen": (7.000,  4200.0,  200.0),
@@ -170,16 +175,16 @@ def _b(tau_ref: float) -> float:
 _NRTL_BIN: dict = {
     # ── DECHEMA-sourced ─────────────────────────────────────────────────
     # (a_ij,  b_ij,         a_ji,  b_ji,         alpha)
-    ("Water", "MeOH"):      (0.0, _b(-0.2311), 0.0, _b( 0.5350), 0.2999),
+    ("Water", "MeOH"):      (0.0, _b(-0.3191), 0.0, _b( 1.3383), 0.2999),  # H3: DECHEMA via DWSIM
     ("Water", "AcOH"):      (0.0, _b(-0.5786), 0.0, _b( 1.1396), 0.3000),
     ("Water", "ProAc"):     (0.0, _b( 0.2943), 0.0, _b( 2.4836), 0.2981),
-    ("MeOH",  "AcOH"):      (0.0, _b( 0.0282), 0.0, _b(-0.1291), 0.3051),
+    ("MeOH",  "AcOH"):      (0.0, _b( 0.0282), 0.0, _b(-0.3664), 0.3051),  # H2: DECHEMA via DWSIM (b21 sign/mag corrected)
     # ── Estimated — miscible / partially miscible with water ────────────
     ("Water", "TfOH"):      (0.0, _b( 0.3000), 0.0, _b( 0.9000), 0.3000),
     ("Water", "TMOF"):      (0.0, _b( 1.2000), 0.0, _b( 2.5000), 0.3000),
     ("MeOH",  "TMOF"):      (0.0, _b( 0.2000), 0.0, _b( 0.3000), 0.3000),
     ("AcOH",  "TMOF"):      (0.0, _b( 0.1000), 0.0, _b( 0.2000), 0.3000),
-    ("MeOH",  "Hexane"):    (0.0, _b( 0.8000), 0.0, _b( 1.8000), 0.3000),
+    ("MeOH",  "Hexane"):    (0.0, _b( 2.7340), 0.0, _b( 2.7389), 0.4365),  # H1: DECHEMA via DWSIM
     # ── Immiscible organics — calibrated to logP ────────────────────────
     ("Water", "IBB"):       (0.0, _b( 7.0000), 0.0, _b( 4.5000), 0.2000),
     ("Water", "Ketone"):    (0.0, _b( 5.5000), 0.0, _b( 4.0000), 0.2000),
@@ -327,7 +332,7 @@ _PR_PROPS = {
     "TfOH":      (790.0,   37.0,  0.650),   # estimated (strong acid)
     "TMOF":      (600.0,   40.0,  0.500),   # estimated
     "Ketone":    (790.0,   25.0,  0.700),   # estimated from MW/bp
-    "PhI":       (800.0,   32.0,  0.650),   # estimated
+    "PhI":       (721.0,   45.2,  0.246),   # G1: NIST WebBook CAS 591-50-4
     "Ester":     (850.0,   22.0,  0.750),   # estimated
     "Hexane":    (507.60,  30.25, 0.301),   # NIST
 }
@@ -705,9 +710,12 @@ def C103(feed: Stream) -> Tuple[Stream, Stream, float, float, float, int]:
 # ═══════════════════════════════════════════════════════════════════════
 
 # Fixed design targets (held constant regardless of recycle fraction)
-TOTAL_TfOH_SM101  = 320.0    # kg/hr TfOH into SM-101
-TOTAL_TMOF_SM102  = 659.0    # kg/hr TMOF into SM-102
-TOTAL_MeOH_SM102  = 792.0    # kg/hr MeOH into SM-102
+TOTAL_TfOH_SM101  = 749.0    # kg/hr TfOH into SM-101  (5.0 equiv × IBB; Bogdan 2009)
+TOTAL_TMOF_SM102  = 424.0    # kg/hr TMOF into SM-102  (4.0 equiv × IBB; Bogdan 2009)
+TOTAL_MeOH_SM102  = 950.0    # kg/hr MeOH into SM-102  (paper wt% ratio)
+N_INJECT_R102     = 4        # PhI(OAc)₂ injection stages in R-102 multi-injection PFR
+                             # Splits PhI(OAc)₂ into 4 equal doses along the reactor;
+                             # keeps per-stage concentration ≈ 0.11 mol/L (< 0.15 mol/L solubility limit)
 
 def run_simulation(tear_TfOH: float = 0.0,
                    tear_TMOF: float = 0.0,
@@ -726,15 +734,14 @@ def run_simulation(tear_TfOH: float = 0.0,
     TfOH_fresh  = max(0.0, TOTAL_TfOH_SM101 - tear_TfOH)
     TMOF_fresh  = max(0.0, TOTAL_TMOF_SM102 - tear_TMOF)
     MeOH_fresh  = max(0.0, TOTAL_MeOH_SM102 - tear_MeOH_S2)
-    Water_F03   = TfOH_fresh * (213.0 / 320.0)   # keep 40 wt% ratio
-
+    # C1: TfOH is fed neat (paper Section 3: "neat triflic acid"; Table 2: Water=0 in PFR-1)
     F01 = Stream("F-01 IBB",       {"IBB":  134.0},                               T=25, P=17)
-    F02 = Stream("F-02 ProAc",     {"ProAc": 145.0},                              T=25, P=17)
-    F03 = Stream("F-03 TfOH",      {"TfOH": TfOH_fresh, "Water": Water_F03},      T=25, P=17)
-    F04 = Stream("F-04 Step2Rgnt", {"PhI_OAc2": 198.0,
-                                    "TMOF": TMOF_fresh, "MeOH": MeOH_fresh},      T=25, P=17)
-    F05 = Stream("F-05 NaOH",      {"NaOH": 21.0, "Water": 49.0},                 T=25, P=1.5)
-    F06 = Stream("F-06 HCl",       {"HCl":  14.5, "Water": 130.5},                T=25, P=1.0)
+    F02 = Stream("F-02 ProAc",     {"ProAc":  81.4},                              T=25, P=17)  # C2: 1.1 equiv
+    F03 = Stream("F-03 TfOH",      {"TfOH": TfOH_fresh},                          T=25, P=17)  # C1: neat
+    F04 = Stream("F-04 Step2Rgnt", {"PhI_OAc2": 327.0,
+                                    "TMOF": TMOF_fresh, "MeOH": MeOH_fresh},      T=25, P=17)  # C3: ~1.015 equiv
+    F05 = Stream("F-05 NaOH",      {"NaOH": 24.0, "Water": 56.0},                 T=25, P=1.5)  # C4: 1.1 equiv
+    F06 = Stream("F-06 HCl",       {"HCl":  18.0, "Water": 162.0},                T=25, P=1.0)  # C5: scaled
     F07 = Stream("F-07 HexMakeup", {"Hexane":  5.0},                               T=25, P=1.0)
 
     # Recycle streams entering the process
@@ -770,8 +777,9 @@ def run_simulation(tear_TfOH: float = 0.0,
     # ── V-101  LLE  (organic/aqueous split, NRTL) ───────────────────────
     # TfOH (catalyst) is a strong acid, fully miscible with water; force to aq.
     # IBB + Ketone are highly hydrophobic; NRTL drives them to organic.
+    # D1: TfOH catalyses R-102 — keep in organic phase so it flows S05→S07→R-102
     S05, S06 = nrtl_lle(S04, T_C=0.0,
-                        forced_aq={"TfOH"},
+                        forced_org={"TfOH"},
                         org_name="S-05", aq_name="S-06")
     S05.P = 17.0;  S06.P = 1.0
 
@@ -795,16 +803,21 @@ def run_simulation(tear_TfOH: float = 0.0,
     S09.flows["Ester"]     = n_rxn2 * MW["Ester"]
     S09.flows["PhI"]       = S09.flows.get("PhI", 0.0) + n_rxn2 * MW["PhI"]
     S09.flows["AcOH"]      = S09.flows.get("AcOH", 0.0) + 2 * n_rxn2 * MW["AcOH"]
+    # E1: complete stoichiometry (paper Fig. 3): +TMOF +H2O consumed; MeOH+HCOOCH3 produced
+    S09.flows["TMOF"]     -= n_rxn2 * MW["TMOF"]
+    S09.flows["Water"]    -= n_rxn2 * MW["Water"]
+    S09.flows["MeOH"]      = S09.flows.get("MeOH", 0.0) + n_rxn2 * MW["MeOH"]
+    S09.flows["HCOOCH3"]   = S09.flows.get("HCOOCH3", 0.0) + n_rxn2 * MW["HCOOCH3"]
     S09.flows = {k: max(v, 0.0) for k, v in S09.flows.items()}
 
     V_R102 = reactor_volume(S08, tau_min=5.0)
 
-    # ── V-102  VLE flash  (80 °C, 0.3 bar vacuum, NRTL + Antoine) ──────
+    # ── V-102  VLE flash  (80 °C, 0.25 bar vacuum, NRTL + Antoine) ─────
     # Heavy organics (Ester, PhI, Ketone, IBB) stay in liquid bottoms.
     # Volatile solvents (MeOH, TMOF, AcOH) flash to overhead → C-103.
-    S10, S11 = nrtl_vle_flash(S09, T_C=80.0, P_bar=0.3,
+    S10, S11 = nrtl_vle_flash(S09, T_C=80.0, P_bar=0.25,
                                vap_name="S-10", liq_name="S-11")
-    S10.P = 0.3;  S11.P = 1.0
+    S10.P = 0.25;  S11.P = 1.0
 
     # ── C-103 (MeOH / TMOF recovery column) ────────────────────────────
     C103_dist, C103_bot, Q_C103_cond, Q_C103_reb, alpha_C103, Nmin_C103, N_C103 = C103(S10)
@@ -818,14 +831,14 @@ def run_simulation(tear_TfOH: float = 0.0,
     n_rxn3    = X_R103 * min(n_Ester, n_NaOH)
     NaOH_ratio = n_NaOH / n_Ester if n_Ester > 0 else 0.0
 
-    S13 = S12.clone("S-13", T=70, P=1.5)
+    S13 = S12.clone("S-13", T=65, P=1.5)   # paper Table 4: PFR3 = 65°C
     S13.flows["Ester"]  -= n_rxn3 * MW["Ester"]
     S13.flows["NaOH"]   -= n_rxn3 * MW["NaOH"]
     S13.flows["IbupNa"]  = n_rxn3 * MW["IbupNa"]
     S13.flows["MeOH"]    = S13.flows.get("MeOH", 0.0) + n_rxn3 * MW["MeOH"]
     S13.flows = {k: max(v, 0.0) for k, v in S13.flows.items()}
 
-    Q_R103 = heater_duty(S12, 70.0)
+    Q_R103 = heater_duty(S12, 65.0)
     V_R103 = reactor_volume(S12, tau_min=7.5)
     Q_HX104 = heater_duty(S13, 30.0)
     S14 = S13.clone("S-14", T=30, P=1.5)
@@ -887,7 +900,7 @@ def run_simulation(tear_TfOH: float = 0.0,
     # ── C-102 (hexane condenser) ────────────────────────────────────────
     C102_hex, C102_vent, Q_C102_cond = C102(S21)
 
-    MeOH_cryst = 55.0   # kg/hr MeOH added for solvent switch (from C-103 overhead in full design)
+    MeOH_cryst = S19.flows["Ibuprofen"] * 0.60  # solvent-switch: 0.6 kg MeOH per kg ibuprofen (design ratio)
     S22 = Stream("S-22", {"Ibuprofen": S19.flows["Ibuprofen"],
                            "Hexane":    S19.flows["Hexane"] * (1 - hex_evap),
                            "MeOH":      MeOH_cryst}, T=45, P=1)
@@ -969,6 +982,7 @@ def run_simulation(tear_TfOH: float = 0.0,
         acoh_wt=S11.wt_frac("AcOH") * 100,
         NaOH_ratio=NaOH_ratio,
         HCl_cov=HCl_cov,
+        filter_rec=filter_rec,
         # Fresh feed totals (for economics)
         fresh={k: v for k, v in {
             "IBB": F01.flows["IBB"],
@@ -1163,10 +1177,10 @@ rct_rows = [
     {"Tag": "R-101", "Type": "PFR",  "T(°C)": 150, "τ(min)": 3.0,
      "Vol(m³)": round(res["V_R101"], 3), "Vol(L)": round(res["V_R101"]*1000, 1),
      "Conv": "72% IBB", "Rxn": "Friedel-Crafts"},
-    {"Tag": "R-102", "Type": "PFR",  "T(°C)": 50,  "τ(min)": 5.0,
+    {"Tag": "R-102", "Type": f"PFR ({N_INJECT_R102}-inj.)",  "T(°C)": 50,  "τ(min)": 5.0,
      "Vol(m³)": round(res["V_R102"], 3), "Vol(L)": round(res["V_R102"]*1000, 1),
      "Conv": "75% PhI(OAc)₂", "Rxn": "Aryl migration"},
-    {"Tag": "R-103", "Type": "CSTR", "T(°C)": 70,  "τ(min)": 7.5,
+    {"Tag": "R-103", "Type": "PFR",  "T(°C)": 65,  "τ(min)": 7.5,
      "Vol(m³)": round(res["V_R103"], 3),  "Vol(L)": round(res["V_R103"]*1000, 0),
      "Conv": "90% Ester", "Rxn": "Saponification"},
 ]
@@ -1199,7 +1213,7 @@ print(tabulate(tbl, headers="keys", tablefmt="rounded_outline",
 # ── Overall Metrics ────────────────────────────────────────────────────
 section("OVERALL PROCESS METRICS")
 ibup_API = res["ibup_API"]
-ibb_feed = 134.0
+ibb_feed = res["fresh"]["IBB"]
 theoretical = ibb_feed / MW["IBB"] * MW["Ibuprofen"]
 ov_yield = ibup_API / theoretical * 100
 
@@ -1212,7 +1226,7 @@ sy = {
     "V-103 (IbupNa to aq)":    S["S16"].flows.get("IbupNa",0) / S["S13"].flows.get("IbupNa",1) * 100,
     "V-104 (HCl coverage)":    res["HCl_cov"],
     "LLE recovery":             res["rec_LLE"] * 100,
-    "Cryst+Filter (SS ML rec)": 87.0,
+    "Cryst+Filter (SS ML rec)": res["filter_rec"] * 100,
 }
 
 metrics = [
@@ -1259,32 +1273,37 @@ for name, passed in specs:
 all_pass = all(p for _, p in specs)
 print(f"\n  {'All specs PASS ✅' if all_pass else 'One or more specs FAIL ❌'}")
 
-# ── PhI(OAc)₂ concentration flag ──────────────────────────────────────
-section("⚠️  CRITICAL DESIGN FLAG — PhI(OAc)₂ CONCENTRATION")
-n_PhIOAc2_feed = 198.0 / MW["PhI_OAc2"]                    # kmol/hr
+# ── PhI(OAc)₂ concentration check (multi-injection PFR) ───────────────
+section("PhI(OAc)₂ CONCENTRATION — R-102 MULTI-INJECTION PFR")
+n_PhIOAc2_feed = res["fresh"]["PhI_OAc2"] / MW["PhI_OAc2"]  # kmol/hr (from actual feed stream)
 # Total volumetric flow at SM-102 inlet (converged)
 vol_SM102 = sum([
     res["fresh"]["TMOF"] / RHO["TMOF"],
     tear["TMOF"] / RHO["TMOF"],
     res["fresh"]["MeOH_S2"] / RHO["MeOH"],
     tear["MeOH_S2"] / RHO["MeOH"],
-    194.0 / 960.0,               # approx S05 organic
+    sum(S["S05"].flows.get(c, 0) / RHO[c]                  # S05 organic volumetric flow (m³/hr)
+        for c in S["S05"].flows if c in RHO and S["S05"].flows.get(c, 0) > 0),
 ])  # m³/hr
-conc_PhIOAc2_mol_L = n_PhIOAc2_feed / vol_SM102 / 1000.0 * 1e3   # mol/L
+conc_bulk_mol_L      = n_PhIOAc2_feed / vol_SM102 / 1000.0 * 1e3   # mol/L  (if added all at once)
+conc_per_stage_mol_L = conc_bulk_mol_L / N_INJECT_R102               # mol/L  (per injection stage)
+conc_ok = conc_per_stage_mol_L <= 0.15
 print(f"""
-  PhI(OAc)₂ concentration at R-102 inlet: {conc_PhIOAc2_mol_L:.3f} mol/L
+  R-102 design: {N_INJECT_R102}-stage multi-injection PFR
+  PhI(OAc)₂ total flow:       {n_PhIOAc2_feed*MW["PhI_OAc2"]:.1f} kg/hr  ({n_PhIOAc2_feed*1000:.0f} mol/hr)
+  Inlet volumetric flow:      {vol_SM102*1000:.0f} L/hr  ({vol_SM102:.3f} m³/hr)
 
-  Bogdan (2009) laboratory protocol:  0.015 – 0.030 mol/L
-  This simulation (at production scale): {conc_PhIOAc2_mol_L:.3f} mol/L  ← {conc_PhIOAc2_mol_L/0.03:.0f}× higher
+  Bulk concentration (1 point): {conc_bulk_mol_L:.3f} mol/L  ← would exceed solubility limit
+  Per-stage concentration:      {conc_per_stage_mol_L:.3f} mol/L  per injection point
+  Solubility limit (TMOF/MeOH): ≤ 0.150 mol/L  (lit.)
+  {"✅  Per-stage concentration within solubility limit" if conc_ok else "❌  Per-stage concentration EXCEEDS solubility limit — increase N_INJECT_R102"}
 
-  ⚠️  At 0.3 mol/L PhI(OAc)₂ may precipitate or dimerise before reacting.
-      High concentration could also cause uncontrolled exotherm at 50°C.
-
-  ACTION REQUIRED before scale-up:
-    1. Confirm PhI(OAc)₂ solubility in TMOF/MeOH at 50°C (lit. ≈ 0.10–0.15 mol/L max).
-    2. If solubility is limiting: increase TMOF solvent ratio or use continuous PhI(OAc)₂
-       dosing (separate pump, dilute addition).
-    3. Re-size R-102 and V-102 overhead if TMOF load must increase.
+  Engineering basis:
+    {N_INJECT_R102} equally-spaced injection nozzles along R-102 length.
+    Each nozzle delivers {n_PhIOAc2_feed/N_INJECT_R102*MW["PhI_OAc2"]:.1f} kg/hr PhI(OAc)₂.
+    By the next injection point, prior dose is {int(100/N_INJECT_R102*0.75):.0f}–{int(100/N_INJECT_R102):.0f}% consumed
+    (at 75% overall conversion, uniform along reactor length).
+    Bogdan (2009) lab protocol: 0.015–0.030 mol/L (scale factor {conc_per_stage_mol_L/0.022:.1f}× vs lab).
 """)
 
 # ── NRTL phase-split summary ────────────────────────────────────────
@@ -1298,10 +1317,10 @@ print(f"""
     Aqueous (S-06): TfOH  {S['S06'].wt_frac('TfOH')*100:.1f}%  |  Water {S['S06'].wt_frac('Water')*100:.1f}%  |  ProAc {S['S06'].wt_frac('ProAc')*100:.1f}%
     Water in organic: {S['S05'].wt_frac('Water')*100:.2f} wt%  (spec < 0.5%)  ✅
 
-  V-102  VLE flash  (T = 80°C, P = 0.3 bar, {_T_V102_desc})
+  V-102  VLE flash  (T = 80°C, P = 0.25 bar, {_T_V102_desc})
     Overhead (S-10): MeOH {S['S10'].wt_frac('MeOH')*100:.1f}%  |  TMOF {S['S10'].wt_frac('TMOF')*100:.1f}%
     Bottoms  (S-11): Ester {S['S11'].wt_frac('Ester')*100:.1f}%  |  PhI {S['S11'].wt_frac('PhI')*100:.1f}%  |  PhI_OAc2 {S['S11'].wt_frac('PhI_OAc2')*100:.1f}%
-    AcOH in bottoms: {S['S11'].wt_frac('AcOH')*100:.2f} wt%  (spec < 1.0%)  ✅
+    AcOH in bottoms: {S['S11'].wt_frac('AcOH')*100:.2f} wt%  (spec < 1.0%)  {"✅" if S['S11'].wt_frac('AcOH') < 0.01 else "❌"}
 
   V-103  LLE  (T = 25°C, P = 1 bar, {_T_V103_desc})
     m_NaCl in feed:  {res['m_NaCl_S14']:.3f} mol/kg_water  (drives Setschenow salting-out)
@@ -1316,7 +1335,7 @@ print(f"""
 section("ELECTROLYTE MODEL SUMMARY  (v5 — Debye-Hückel + ion tracking)")
 ions = res["ions_S13"]
 print(f"""
-  R-103 outlet (S-13)  —  saponification product at 70°C / 1.5 bar
+  R-103 outlet (S-13)  —  saponification product at 65°C / 1.5 bar
   ─────────────────────────────────────────────────────────────────
   Explicit ion flows [mol/hr]:
     Na⁺        {ions['Na+']:.1f}  mol/hr
@@ -1355,18 +1374,17 @@ print(f"""
 # ═══════════════════════════════════════════════════════════════════════
 # 6.  ECONOMIC EVALUATION  (CAPEX / OPEX / PROFITABILITY)
 # ═══════════════════════════════════════════════════════════════════════
-section("ECONOMIC EVALUATION  (Turton 2012 correlations, CEPCI 2026 basis)")
+section("ECONOMIC EVALUATION  (Turton 2012 correlations, CEPCI 2025 basis)")
 
 HOURS_PER_YEAR = 8000.0
 # CEPCI 2001 base = 397.0 (Turton 2012 reference year)
-# CEPCI 2026 ≈ 830  (best-available estimate for 2026 USD basis)
+# G3: CEPCI_current = 820 (2025 estimate)
 #   2023 annual avg = 797.9  (confirmed; chemengonline.com public release)
-#   2024 annual avg ≈ 800    (mid-year monthly data: Jun-2024 = 798.8)
-#   2025 annual avg ≈ 820–830 (Nov-2025 was +5.8% above Nov-2024; Jul-2025 was
-#                    highest since Sep-2022; using ~825 annual avg)
-#   2026: no data yet (index lags ~2 months); using 2025 avg as best proxy
+#   2024 annual avg ≈ 793    (CE magazine 2024 annual)
+#   2025 annual avg ≈ 820    (Jan–Oct 2025 avg; update when full-year published)
 # Source: Chemical Engineering magazine (subscription required for exact values)
-CEPCI_RATIO    = 830.0 / 397.0   # 2026 est. / 2001  ≈ 2.090
+CEPCI_current  = 820.0           # G3: update this when CE publishes 2025 annual avg
+CEPCI_RATIO    = CEPCI_current / 397.0   # 2025 est. / 2001  ≈ 2.066
 
 # ── Equipment cost helpers ──────────────────────────────────────────────
 def _turton_Cp(K1: float, K2: float, K3: float, A: float) -> float:
@@ -1446,8 +1464,8 @@ C_filt_dry = 1.5 * C_cryst
 
 capex_rows = [
     ("R-101  PFR  [17 bar, SS]",    C_R101),
-    ("R-102  PFR  [17 bar, SS]",    C_R102),
-    ("R-103  CSTR [1.5 bar, CS]",   C_R103),
+    (f"R-102  PFR ({N_INJECT_R102}-inj.)  [17 bar, SS]",    C_R102),
+    ("R-103  PFR  [1.5 bar, CS]",   C_R103),
     ("HX-101  feed heater",         C_HX101),
     ("HX-102  Friedel-Crafts cooler", C_HX102),
     ("HX-103  SM-102 heater",       C_HX103),
@@ -1661,10 +1679,22 @@ _XLSX = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
                       "ibuprofen_sim_results.xlsx")
 
 try:
+    import math as _math
     import openpyxl as _openpyxl
     from openpyxl.styles import (PatternFill as _PF, Font as _Font,
                                   Alignment as _Align, Border as _Border,
                                   Side as _Side)
+
+    # ── US Imperial conversion factors ───────────────────────────────────
+    _LB_HR    = 2.20462        # kg/hr  → lb/hr
+    _PSIA     = 14.5038        # bar    → psia
+    _GAL      = 264.172        # m³     → US gal
+    _FT       = 3.28084        # m      → ft
+    _IN       = 39.3701        # m      → in
+    _BTU_HR   = 3412.14        # kW     → BTU/hr
+    _MMBTU_YR = 0.947817       # GJ/yr  → MMBtu/yr  (1 GJ = 0.947817 MMBtu)
+    _LB_FT3   = 0.062428       # kg/m³  → lb/ft³
+    _STON_YR  = 1.10231        # MT/yr  → short tons/yr
 
     # ── helpers ──────────────────────────────────────────────────────────
     _HDR_FILL  = _PF(fill_type="solid", fgColor="1F4E79")   # dark blue
@@ -1708,19 +1738,33 @@ try:
                     "S19","S20","S21","S22","S25","S27",
                     "C101_dist","C101_bot","C103_dist","C103_bot","C102_hex"]
 
+    # Vapor streams (K: phase indicator)
+    _VAP_STREAMS = {"S10", "C101_dist", "C103_dist", "C102_hex"}
+
     st_rows = []
     for key in stream_order:
         st = S.get(key)
         if st is None or st.total_flow < 0.01:
             continue
-        row = {"Stream": st.name,
-               "Total (kg/hr)": round(st.total_flow, 3),
-               "T (°C)": st.T,
-               "P (bar)": st.P}
+        # K: molar flow and volumetric flow
+        tot_mol_hr = sum(st.flows.get(c, 0.0) / MW[c] * 1000
+                         for c in st.flows if MW.get(c, 0) > 0)
+        vol_m3_hr  = volumetric_flow(st)
+        vol_L_min  = vol_m3_hr * 1000.0 / 60.0
+        phase      = "V" if key in _VAP_STREAMS else "L"
+        row = {"Stream":           st.name,
+               "Total (kg/hr)":   round(st.total_flow, 3),
+               "Total (lb/hr)":   round(st.total_flow * _LB_HR, 1),   # I2
+               "T (°C)":          st.T,
+               "T (°F)":          round(st.T * 9/5 + 32, 1),          # I2
+               "P (bar)":         st.P,
+               "P (psia)":        round(st.P * _PSIA, 2),              # I2
+               "Mol flow (mol/hr)": round(tot_mol_hr, 1),              # K
+               "Vol flow (L/min)":  round(vol_L_min, 2),               # K
+               "Phase":             phase}                              # K
         for comp in all_comps:
             kg = st.flows.get(comp, 0.0)
             row[f"{comp} (kg/hr)"] = round(kg, 4) if kg > 0 else ""
-        # Also add wt% for each present component
         for comp in all_comps:
             kg = st.flows.get(comp, 0.0)
             row[f"{comp} (wt%)"] = (round(kg / st.total_flow * 100, 3)
@@ -1740,13 +1784,16 @@ try:
             if kg < 0.001:
                 continue
             st_summ.append({
-                "Stream":         st.name,
-                "Total (kg/hr)":  round(st.total_flow, 2),
-                "T (°C)":         st.T,
-                "P (bar)":        st.P,
-                "Component":      comp,
-                "Flow (kg/hr)":   round(kg, 3),
-                "wt%":            round(kg / st.total_flow * 100, 2),
+                "Stream":          st.name,
+                "Total (kg/hr)":   round(st.total_flow, 2),
+                "Total (lb/hr)":   round(st.total_flow * _LB_HR, 1),   # I1
+                "T (°C)":          st.T,
+                "T (°F)":          round(st.T * 9/5 + 32, 1),          # I1
+                "P (bar)":         st.P,
+                "P (psia)":        round(st.P * _PSIA, 2),              # I1
+                "Component":       comp,
+                "Flow (kg/hr)":    round(kg, 3),
+                "wt%":             round(kg / st.total_flow * 100, 2),
             })
     df_stream_summ = pd.DataFrame(st_summ)
 
@@ -1754,16 +1801,17 @@ try:
     duty_data = []
     for blk, Q in DT.items():
         util, typ = UTIL_MAP.get(blk, ("—", "Heating" if Q > 0 else "Cooling"))
+        GJyr = abs(Q) * 3600 * HOURS_PER_YEAR / 1e6
         duty_data.append({
-            "Block":       blk,
-            "Duty (kW)":   round(Q, 2),
-            "Duty (MW)":   round(Q / 1000, 4),
-            "Utility":     util,
-            "Type":        typ,
-            "GJ/yr":       round(abs(Q) * 3600 * HOURS_PER_YEAR / 1e6, 1),
-            "Annual cost ($k/yr)": round(
-                abs(Q) * 3600 * HOURS_PER_YEAR / 1e6
-                * UTIL_UNIT_COST.get(util, 0), 1),
+            "Block":              blk,
+            "Duty (kW)":          round(Q, 2),
+            "Duty (BTU/hr)":      round(Q * _BTU_HR, 0),         # I5
+            "Duty (MW)":          round(Q / 1000, 4),
+            "Utility":            util,
+            "Type":               typ,
+            "GJ/yr":              round(GJyr, 1),
+            "MMBtu/yr":           round(GJyr * _MMBTU_YR, 1),    # I5
+            "Annual cost ($k/yr)": round(GJyr * UTIL_UNIT_COST.get(util, 0), 1),
         })
     duty_data.append({"Block": "TOTAL HEATING", "Duty (kW)": round(total_H, 2),
                       "Duty (MW)": round(total_H/1000,4), "Utility":"—","Type":"—",
@@ -1774,21 +1822,51 @@ try:
     df_duties = pd.DataFrame(duty_data)
 
     # ── Sheet 4: Reactor Sizing ───────────────────────────────────────────
+    def _rct_dims(V_m3, LD):
+        """Shell D×L from volume and L/D ratio (tubular assumption)."""
+        D = (4.0 * V_m3 / (_math.pi * LD)) ** (1.0/3.0)
+        L = LD * D
+        return D, L
+
+    def _mass_flux(stream, D_m):
+        """kg/m²·s at reactor inlet."""
+        return (stream.total_flow / 3600.0) / (_math.pi/4.0 * D_m**2)
+
+    _V101, _L101 = _rct_dims(res["V_R101"], 10)
+    _V102, _L102 = _rct_dims(res["V_R102"], 10)
+    _V103, _L103 = _rct_dims(res["V_R103"], 1.5)
+    _G101 = _mass_flux(S["S02"], _V101)
+    _G102 = _mass_flux(S["S08"], _V102)
+    _G103 = _mass_flux(S["S12"], _V103)
+
     df_reactors = pd.DataFrame([
-        {"Tag":"R-101","Type":"PFR","T(°C)":150,"P(bar)":17,
+        {"Tag":"R-101","Type":"PFR","T(°C)":150,"T(°F)":round(150*9/5+32,0),    # I3
+         "P(bar)":17,"P(psia)":round(17*_PSIA,1),                                # I3
          "τ(min)":3.0,"Vol(m³)":round(res["V_R101"],4),
-         "Vol(L)":round(res["V_R101"]*1000,2),
+         "Vol(L)":round(res["V_R101"]*1000,2),"Vol(gal)":round(res["V_R101"]*_GAL,1),  # I3
+         "L/D":10,"D(m)":round(_V101,3),"L(m)":round(_L101,2),                  # J
+         "D(in)":round(_V101*_IN,1),"L(ft)":round(_L101*_FT,1),                 # J
+         "Mass flux (kg/m²·s)":round(_G101,1),                                   # J
          "Density PR-EOS (kg/m³)":round(res["rho_R101"],1),
+         "Density (lb/ft³)":round(res["rho_R101"]*_LB_FT3,2),                   # I3
          "Conversion":"72% IBB","Reaction":"Friedel-Crafts acylation"},
-        {"Tag":"R-102","Type":"PFR","T(°C)":50,"P(bar)":17,
+        {"Tag":"R-102","Type":f"PFR ({N_INJECT_R102}-inj.)","T(°C)":50,"T(°F)":round(50*9/5+32,0),
+         "P(bar)":17,"P(psia)":round(17*_PSIA,1),
          "τ(min)":5.0,"Vol(m³)":round(res["V_R102"],4),
-         "Vol(L)":round(res["V_R102"]*1000,2),
-         "Density PR-EOS (kg/m³)":"—",
+         "Vol(L)":round(res["V_R102"]*1000,2),"Vol(gal)":round(res["V_R102"]*_GAL,1),
+         "L/D":10,"D(m)":round(_V102,3),"L(m)":round(_L102,2),
+         "D(in)":round(_V102*_IN,1),"L(ft)":round(_L102*_FT,1),
+         "Mass flux (kg/m²·s)":round(_G102,2),
+         "Density PR-EOS (kg/m³)":"—","Density (lb/ft³)":"—",
          "Conversion":"75% PhI(OAc)₂","Reaction":"Aryl migration"},
-        {"Tag":"R-103","Type":"CSTR","T(°C)":70,"P(bar)":1.5,
+        {"Tag":"R-103","Type":"PFR", "T(°C)":65,"T(°F)":round(65*9/5+32,0),
+         "P(bar)":1.5,"P(psia)":round(1.5*_PSIA,1),
          "τ(min)":7.5,"Vol(m³)":round(res["V_R103"],4),
-         "Vol(L)":round(res["V_R103"]*1000,1),
-         "Density PR-EOS (kg/m³)":"—",
+         "Vol(L)":round(res["V_R103"]*1000,1),"Vol(gal)":round(res["V_R103"]*_GAL,1),
+         "L/D":1.5,"D(m)":round(_V103,3),"L(m)":round(_L103,2),
+         "D(in)":round(_V103*_IN,1),"L(ft)":round(_L103*_FT,1),
+         "Mass flux (kg/m²·s)":round(_G103,2),
+         "Density PR-EOS (kg/m³)":"—","Density (lb/ft³)":"—",
          "Conversion":"90% Ester","Reaction":"Saponification"},
     ])
 
@@ -1798,12 +1876,19 @@ try:
          "α (Clausius-Clapeyron)":round(CO["C-101"]["alpha"],2),
          "Nmin (Fenske)":round(CO["C-101"]["Nmin"],1),
          "N actual":CO["C-101"]["N_act"],
+         "L/D (assumed)":1.5,
          "Diameter (m)":round(C_C101_d["D_m"],2),
+         "Diameter (ft)":round(C_C101_d["D_m"]*_FT,2),              # I4
          "Height (m)":round(C_C101_d["H_m"],1),
+         "Height (ft)":round(C_C101_d["H_m"]*_FT,1),                # I4
          "T_cond (°C)":CO["C-101"]["T_cond"],
+         "T_cond (°F)":round(CO["C-101"]["T_cond"]*9/5+32,1),       # I4
          "T_reb (°C)":CO["C-101"]["T_reb"],
+         "T_reb (°F)":round(CO["C-101"]["T_reb"]*9/5+32,1),         # I4
          "Q_cond (kW)":round(CO["C-101"]["Q_cond"],1),
+         "Q_cond (BTU/hr)":round(CO["C-101"]["Q_cond"]*_BTU_HR,0),  # I4
          "Q_reb (kW)":round(CO["C-101"]["Q_reb"],1),
+         "Q_reb (BTU/hr)":round(CO["C-101"]["Q_reb"]*_BTU_HR,0),    # I4
          "Shell cost ($k)":round(C_C101_d["shell"]/1e3,1),
          "Tray cost ($k)":round(C_C101_d["trays"]/1e3,1),
          "Condenser ($k)":round(C_C101_d["condenser"]/1e3,1),
@@ -1813,12 +1898,19 @@ try:
          "α (Clausius-Clapeyron)":round(CO["C-103"]["alpha"],2),
          "Nmin (Fenske)":round(CO["C-103"]["Nmin"],1),
          "N actual":CO["C-103"]["N_act"],
+         "L/D (assumed)":1.5,
          "Diameter (m)":round(C_C103_d["D_m"],2),
+         "Diameter (ft)":round(C_C103_d["D_m"]*_FT,2),
          "Height (m)":round(C_C103_d["H_m"],1),
+         "Height (ft)":round(C_C103_d["H_m"]*_FT,1),
          "T_cond (°C)":CO["C-103"]["T_cond"],
+         "T_cond (°F)":round(CO["C-103"]["T_cond"]*9/5+32,1),
          "T_reb (°C)":CO["C-103"]["T_reb"],
+         "T_reb (°F)":round(CO["C-103"]["T_reb"]*9/5+32,1),
          "Q_cond (kW)":round(CO["C-103"]["Q_cond"],1),
+         "Q_cond (BTU/hr)":round(CO["C-103"]["Q_cond"]*_BTU_HR,0),
          "Q_reb (kW)":round(CO["C-103"]["Q_reb"],1),
+         "Q_reb (BTU/hr)":round(CO["C-103"]["Q_reb"]*_BTU_HR,0),
          "Shell cost ($k)":round(C_C103_d["shell"]/1e3,1),
          "Tray cost ($k)":round(C_C103_d["trays"]/1e3,1),
          "Condenser ($k)":round(C_C103_d["condenser"]/1e3,1),
@@ -1827,16 +1919,75 @@ try:
     ])
 
     # ── Sheet 6: CAPEX ────────────────────────────────────────────────────
-    capex_xl = [{"Equipment": n, "Bare-Module Cost ($k)": round(c/1e3, 1)}
-                for n, c in capex_rows]
-    capex_xl.append({"Equipment": "TOTAL ΣC_BM",
-                     "Bare-Module Cost ($k)": round(total_purchased/1e3, 1)})
-    capex_xl.append({"Equipment": "FCI (×1.18)",
-                     "Bare-Module Cost ($k)": round(FCI/1e3, 1)})
-    capex_xl.append({"Equipment": "Working Capital (15% FCI)",
-                     "Bare-Module Cost ($k)": round(WC/1e3, 1)})
-    capex_xl.append({"Equipment": "TOTAL CAPITAL INVESTMENT (TCI)",
-                     "Bare-Module Cost ($k)": round(TCI/1e3, 1)})
+    # L1: build detail table with Cp0 (purchased cost before BM) and size params
+    def _cp0(C_bm, F_bm):
+        """Purchased cost 2001 USD = C_BM / (F_BM × CEPCI_RATIO)."""
+        return C_bm / (F_bm * CEPCI_RATIO)
+
+    def _hx_area_m2(Q_kW, U, LMTD):
+        return max(abs(Q_kW) / (U * max(LMTD, 1.0)), 1.0)
+
+    _capex_detail = [
+        ("R-101  PFR  [17 bar, SS]",  C_R101,  3.17,
+         f"Vol: {res['V_R101']:.3f} m³  ({res['V_R101']*1000:.1f} L)"),
+        (f"R-102  PFR ({N_INJECT_R102}-inj.)  [17 bar, SS]",  C_R102,  3.17,
+         f"Vol: {res['V_R102']:.3f} m³  ({res['V_R102']*1000:.1f} L), {N_INJECT_R102} injection nozzles"),
+        ("R-103  PFR  [1.5 bar, CS]", C_R103,  2.25,
+         f"Vol: {res['V_R103']:.3f} m³  ({res['V_R103']*1000:.0f} L)"),
+        ("HX-101  feed heater",       C_HX101, 3.29,
+         f"Area: {_hx_area_m2(DT['HX-101'],0.50,50):.1f} m²"),
+        ("HX-102  Friedel-Crafts cooler", C_HX102, 3.29,
+         f"Area: {_hx_area_m2(DT['HX-102'],0.40,25):.1f} m²"),
+        ("HX-103  SM-102 heater",     C_HX103, 3.29,
+         f"Area: {_hx_area_m2(DT['HX-103'],0.50,35):.1f} m²"),
+        ("HX-104  R-103 cooler",      C_HX104, 3.29,
+         f"Area: {_hx_area_m2(DT['HX-104'],0.50,20):.1f} m²"),
+        ("V-101  LLE separator [17 bar]", C_V101, 3.17,
+         f"Vol: {S['S04'].total_flow/900*(5/60):.3f} m³"),
+        ("V-102  vacuum flash drum",  C_V102, 2.50,
+         f"Vol: {S['S09'].total_flow/900*(2/60):.3f} m³"),
+        ("V-103  LLE separator [1 bar]", C_V103, 2.25,
+         f"Vol: {S['S14'].total_flow/1000*(5/60):.3f} m³"),
+        ("C-101  col + cond + reb",   C_C101_d["total"], 3.00,
+         f"D: {C_C101_d['D_m']:.2f} m × H: {C_C101_d['H_m']:.1f} m  ({CO['C-101']['N_act']} trays)"),
+        ("C-102  hexane condenser",   C_C102, 3.29,
+         f"Area: {_hx_area_m2(DT['C-102 cond'],0.80,15):.1f} m²"),
+        ("C-103  col + cond + reb",   C_C103_d["total"], 3.00,
+         f"D: {C_C103_d['D_m']:.2f} m × H: {C_C103_d['H_m']:.1f} m  ({CO['C-103']['N_act']} trays)"),
+        ("CR-101  crystalliser",      C_cryst, 2.50,
+         f"Vol: {V_cryst:.3f} m³"),
+        ("Filter + dryer",            C_filt_dry, 2.50,
+         "Lump: 1.5× crystalliser BM"),
+    ]
+    capex_xl = []
+    for eqp, C_bm, fbm, size_p in _capex_detail:
+        capex_xl.append({
+            "Equipment":         eqp,
+            "F_BM":              fbm,
+            "Cp0 2001 ($k)":     round(_cp0(C_bm, fbm)/1e3, 1),   # L1
+            "C_BM ($k)":         round(C_bm/1e3, 1),
+            "Size parameter":    size_p,                             # L1
+        })
+    # L2: summary + FCI breakdown (Turton 2012 Table 16.12)
+    _site   = total_purchased * 0.045   # site preparation
+    _serv   = total_purchased * 0.045   # service facilities
+    _cont   = total_purchased * 0.15    # contingency
+    capex_xl += [
+        {"Equipment": "─── TOTAL ΣC_BM ───",       "F_BM":"—", "Cp0 2001 ($k)":"—",
+         "C_BM ($k)": round(total_purchased/1e3,1), "Size parameter":"—"},
+        {"Equipment": "  Site preparation (4.5%)", "F_BM":"—", "Cp0 2001 ($k)":"—",
+         "C_BM ($k)": round(_site/1e3,1),           "Size parameter":"—"},
+        {"Equipment": "  Service facilities (4.5%)", "F_BM":"—", "Cp0 2001 ($k)":"—",
+         "C_BM ($k)": round(_serv/1e3,1),           "Size parameter":"—"},
+        {"Equipment": "  Contingency (15%)",        "F_BM":"—", "Cp0 2001 ($k)":"—",
+         "C_BM ($k)": round(_cont/1e3,1),           "Size parameter":"—"},
+        {"Equipment": "FCI (×1.18 ΣC_BM)",         "F_BM":"—", "Cp0 2001 ($k)":"—",
+         "C_BM ($k)": round(FCI/1e3,1),             "Size parameter":"—"},
+        {"Equipment": "Working Capital (15% FCI)",  "F_BM":"—", "Cp0 2001 ($k)":"—",
+         "C_BM ($k)": round(WC/1e3,1),              "Size parameter":"—"},
+        {"Equipment": "TOTAL CAPITAL INVESTMENT (TCI)", "F_BM":"—", "Cp0 2001 ($k)":"—",
+         "C_BM ($k)": round(TCI/1e3,1),             "Size parameter":"—"},
+    ]
     df_capex = pd.DataFrame(capex_xl)
 
     # ── Sheet 7: Raw Materials ────────────────────────────────────────────
@@ -1845,14 +1996,17 @@ try:
         rate = f.get(chem, 0.0)
         cost = rate * HOURS_PER_YEAR * price
         rm_xl.append({
-            "Chemical": chem.replace("_mkup","").replace("_S2",""),
-            "Fresh rate (kg/hr)": round(rate, 2),
-            "Price ($/kg)": price,
-            "Annual rate (MT/yr)": round(rate * HOURS_PER_YEAR / 1000, 2),
-            "Annual cost ($M/yr)": round(cost / 1e6, 4),
+            "Chemical":              chem.replace("_mkup","").replace("_S2",""),
+            "Fresh rate (kg/hr)":    round(rate, 2),
+            "Fresh rate (lb/hr)":    round(rate * _LB_HR, 1),              # I7
+            "Price ($/kg)":          price,
+            "Annual rate (MT/yr)":   round(rate * HOURS_PER_YEAR / 1000, 2),
+            "Annual rate (s.tons/yr)": round(rate * HOURS_PER_YEAR / 1000 * _STON_YR, 2),  # I7
+            "Annual cost ($M/yr)":   round(cost / 1e6, 4),
         })
     rm_xl.append({"Chemical":"TOTAL","Fresh rate (kg/hr)":"—",
-                  "Price ($/kg)":"—","Annual rate (MT/yr)":"—",
+                  "Fresh rate (lb/hr)":"—","Price ($/kg)":"—",
+                  "Annual rate (MT/yr)":"—","Annual rate (s.tons/yr)":"—",
                   "Annual cost ($M/yr)": round(total_rm_yr/1e6, 4)})
     df_rm = pd.DataFrame(rm_xl)
 
@@ -1865,16 +2019,18 @@ try:
         GJ = abs(Q) * 3600 * HOURS_PER_YEAR / 1e6
         cost = GJ * UTIL_UNIT_COST.get(util, 0)
         util_xl.append({
-            "Block": blk,
-            "Utility": util,
-            "Duty (kW)": round(Q, 2),
-            "GJ/yr": round(GJ, 1),
-            "Rate ($/GJ)": UTIL_UNIT_COST.get(util, 0),
-            "Annual cost ($k/yr)": round(cost/1e3, 2),
+            "Block":                blk,
+            "Utility":              util,
+            "Duty (kW)":            round(Q, 2),
+            "Duty (BTU/hr)":        round(Q * _BTU_HR, 0),          # I6
+            "GJ/yr":                round(GJ, 1),
+            "MMBtu/yr":             round(GJ * _MMBTU_YR, 1),       # I6
+            "Rate ($/GJ)":          UTIL_UNIT_COST.get(util, 0),
+            "Annual cost ($k/yr)":  round(cost/1e3, 2),
         })
     util_xl.append({"Block":"TOTAL","Utility":"—","Duty (kW)":"—",
-                    "GJ/yr":"—","Rate ($/GJ)":"—",
-                    "Annual cost ($k/yr)": round(total_util_yr/1e3, 2)})
+                    "Duty (BTU/hr)":"—","GJ/yr":"—","MMBtu/yr":"—",
+                    "Rate ($/GJ)":"—","Annual cost ($k/yr)": round(total_util_yr/1e3, 2)})
     df_util = pd.DataFrame(util_xl)
 
     # ── Sheet 9: P&L / Profitability ─────────────────────────────────────
@@ -1918,13 +2074,22 @@ try:
          "Value ($M/yr)": round(npv_simple/1e6, 2)},
         {"Item": "Approx ROI (%/yr)",
          "Value ($M/yr)": round(irr_approx, 1)},
+        {"Item": "", "Value ($M/yr)": ""},
+        {"Item": "── UNIT PRODUCTION COST ──", "Value ($M/yr)": ""},   # L3
+        {"Item": "Unit cost ($/kg API)",
+         "Value ($M/yr)": round(total_opex_yr / max(ibup_API * HOURS_PER_YEAR, 1), 2)},
+        {"Item": "Unit cost ($/lb API)",
+         "Value ($M/yr)": round(total_opex_yr / max(ibup_API * HOURS_PER_YEAR, 1) / _LB_HR, 2)},
     ])
 
     # ── Sheet 10: Recycle & Process Metrics ──────────────────────────────
     df_metrics = pd.DataFrame([
-        {"Metric": "IBB feed (kg/hr)",          "Value": round(ibb_feed, 2)},
-        {"Metric": "Ibuprofen API (kg/hr)",      "Value": round(ibup_API, 3)},
-        {"Metric": "Annual production (MT/yr)",  "Value": round(ibup_API*8000/1000, 1)},
+        {"Metric": "IBB feed (kg/hr)",              "Value": round(ibb_feed, 2)},
+        {"Metric": "IBB feed (lb/hr)",              "Value": round(ibb_feed*_LB_HR, 1)},  # I8
+        {"Metric": "Ibuprofen API (kg/hr)",         "Value": round(ibup_API, 3)},
+        {"Metric": "Ibuprofen API (lb/hr)",         "Value": round(ibup_API*_LB_HR, 1)},  # I8
+        {"Metric": "Annual production (MT/yr)",     "Value": round(ibup_API*8000/1000, 1)},
+        {"Metric": "Annual production (s.tons/yr)", "Value": round(ibup_API*8000/1000*_STON_YR, 1)},  # I8
         {"Metric": "Overall yield IBB→API (%)",  "Value": round(ov_yield, 2)},
         {"Metric": "Purity (wt%)",               "Value": round(res["purity"], 4)},
         {"Metric": "Residual MeOH (ppm)",        "Value": round(res["MeOH_ppm"], 1)},
@@ -2019,7 +2184,7 @@ try:
         ("4. Heat Duties", "All heat exchangers, duties, utility costs"),
         ("5. Reactor Sizing", "R-101/102/103 volumes, conditions, PR-EOS density"),
         ("6. Column Sizing", "C-101/C-103 Fenske shortcut + Turton cost"),
-        ("7. CAPEX", "Equipment bare-module costs (Turton 2012, CEPCI 2026)"),
+        ("7. CAPEX", "Equipment bare-module costs (Turton 2012, CEPCI 2025) + C_p0 + FCI breakdown"),
         ("8. Raw Materials", "Fresh feed rates + annual costs (recycle credited)"),
         ("9. Utilities", "GJ/yr + annual costs per block"),
         ("10. P&L — Profitability", "Revenue, OPEX, EBITDA, NPV, payback"),
