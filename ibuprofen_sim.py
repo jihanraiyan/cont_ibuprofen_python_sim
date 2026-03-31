@@ -656,8 +656,11 @@ def C101(feed: Stream) -> Tuple[Stream, Stream, float, float, float, int]:
     """
     LK, HK = "ProAc", "TfOH"
     alpha = relative_volatility(LK, HK)
-    fLK_dist = 0.85   # 85 % ProAc to overhead (waste)
-    fHK_dist = 0.05   # 5 % TfOH to overhead (loss)
+    fLK_dist = 0.85    # 85 % ProAc to overhead (waste)
+    fHK_dist = 0.001   # 0.1 % TfOH to overhead (loss)
+    # Physical basis: TfOH BP=162°C, overhead T=110°C, 13 actual trays, alpha=1.96.
+    # Theoretical fHK_dist ≈ fLK/alpha^N = 0.85/1.96^13 ≈ 0.013%.  0.1% is a
+    # conservative allowance for column non-ideality / maldistribution.
     Nmin = fenske_Nmin(alpha, fLK_dist, fHK_dist)
     N_actual = int(np.ceil(Nmin / 0.55))   # Murphree eff ≈ 55 %
     dist, bott = split_stream(feed, LK, HK, fLK_dist, fHK_dist,
@@ -739,9 +742,10 @@ def run_simulation(tear_TfOH: float = 0.0,
     F02 = Stream("F-02 ProAc",     {"ProAc":  81.4},                              T=25, P=17)  # C2: 1.1 equiv
     F03 = Stream("F-03 TfOH",      {"TfOH": TfOH_fresh},                          T=25, P=17)  # C1: neat
     F04 = Stream("F-04 Step2Rgnt", {"PhI_OAc2": 327.0,
-                                    "TMOF": TMOF_fresh, "MeOH": MeOH_fresh},      T=25, P=17)  # C3: ~1.015 equiv
-    F05 = Stream("F-05 NaOH",      {"NaOH": 24.0, "Water": 56.0},                 T=25, P=1.5)  # C4: 1.1 equiv
-    F06 = Stream("F-06 HCl",       {"HCl":  18.0, "Water": 162.0},                T=25, P=1.0)  # C5: scaled
+                                    "TMOF": TMOF_fresh, "MeOH": MeOH_fresh,
+                                    "Water": 10.0},                               T=25, P=17)  # C3: ~1.015 equiv; Water: stoichiometric co-feed for aryl-migration (1 mol/mol rxn)
+    # F05 (NaOH) is sized dynamically after S11 (see below: must cover Ester + PhI(OAc)2)
+    # F06 (HCl) is sized dynamically after S16 (see below: must neutralize excess NaOH + IbupNa)
     F07 = Stream("F-07 HexMakeup", {"Hexane":  5.0},                               T=25, P=1.0)
 
     # Recycle streams entering the process
@@ -775,11 +779,12 @@ def run_simulation(tear_TfOH: float = 0.0,
     S04 = S03.clone("S-04", T=0.0, P=17)
 
     # ── V-101  LLE  (organic/aqueous split, NRTL) ───────────────────────
-    # TfOH (catalyst) is a strong acid, fully miscible with water; force to aq.
+    # TfOH is a superacid (pKa = -14), fully water-miscible → forced aqueous.
+    # TfOH recovered via C-101 bottoms and recycled to SM-101 (R-101 catalyst only).
     # IBB + Ketone are highly hydrophobic; NRTL drives them to organic.
-    # D1: TfOH catalyses R-102 — keep in organic phase so it flows S05→S07→R-102
+    # R-102 runs on PhI(OAc)2 alone — no TfOH in Sections 2/3 per PFD design.
     S05, S06 = nrtl_lle(S04, T_C=0.0,
-                        forced_org={"TfOH"},
+                        forced_aq={"TfOH"},
                         org_name="S-05", aq_name="S-06")
     S05.P = 17.0;  S06.P = 1.0
 
@@ -823,13 +828,28 @@ def run_simulation(tear_TfOH: float = 0.0,
     C103_dist, C103_bot, Q_C103_cond, Q_C103_reb, alpha_C103, Nmin_C103, N_C103 = C103(S10)
 
     # ── SECTION 3 — SAPONIFICATION ─────────────────────────────────────
+    # F-05 NaOH is sized dynamically to cover two base-consuming steps in R-103:
+    #   (a) Ester saponification:  Ester + NaOH → IbupNa + MeOH    (1 mol NaOH / mol)
+    #   (b) PhI(OAc)₂ hydrolysis: PhI(OAc)₂ + 2NaOH → products    (2 mol NaOH / mol)
+    # NaOH = 1.1 × n_Ester  +  2.0 × n_PhIOAc2  (1.1× safety factor on saponification).
+    # Diluted as 30 wt% NaOH aqueous (water = 7/3 × NaOH by mass).
+    _n_Ester_S11   = S11.molar_flow("Ester")        # kmol/hr
+    _n_PhIOAc2_S11 = S11.molar_flow("PhI_OAc2")     # kmol/hr
+    _NaOH_kg = (1.1 * _n_Ester_S11 + 2.0 * _n_PhIOAc2_S11) * MW["NaOH"]  # kg/hr
+    _Water_kg = _NaOH_kg * (7.0 / 3.0)   # 30 wt% NaOH
+    F05 = Stream("F-05 NaOH", {"NaOH": _NaOH_kg, "Water": _Water_kg}, T=25, P=1.5)
+
     S12 = mix(S11, F05, name="S-12", T=40, P=1.5)
 
     X_R103    = 0.90
     n_Ester   = S12.molar_flow("Ester")
     n_NaOH    = S12.molar_flow("NaOH")
-    n_rxn3    = X_R103 * min(n_Ester, n_NaOH)
-    NaOH_ratio = n_NaOH / n_Ester if n_Ester > 0 else 0.0
+    # Effective NaOH for saponification = total NaOH minus the 2 equiv consumed by PhI(OAc)₂ hydrolysis.
+    # This is the physically meaningful ratio; total NaOH/Ester would be misleadingly high (~3×).
+    _n_PhIOAc2_S12 = S12.molar_flow("PhI_OAc2")
+    n_NaOH_eff = max(0.0, n_NaOH - 2.0 * _n_PhIOAc2_S12)
+    n_rxn3    = X_R103 * min(n_Ester, n_NaOH_eff)
+    NaOH_ratio = n_NaOH_eff / n_Ester if n_Ester > 0 else 0.0
 
     S13 = S12.clone("S-13", T=65, P=1.5)   # paper Table 4: PFR3 = 65°C
     S13.flows["Ester"]  -= n_rxn3 * MW["Ester"]
@@ -860,24 +880,46 @@ def run_simulation(tear_TfOH: float = 0.0,
     # ── V-103  LLE  (organic/aqueous split, NRTL) ───────────────────────
     # IbupNa is ionic (_IONIC) → forced aqueous automatically.
     # PhI, IBB, Ketone, PhI_OAc2 are hydrophobic → NRTL drives them to organic.
-    S15, S16 = nrtl_lle(S14, T_C=25.0,
-                        org_name="S-15", aq_name="S-16")
+    # Organic phase (S-15-PhI) = PhI/IBB/Ketone waste → no PFD stream number.
+    S15_PhI, S16 = nrtl_lle(S14, T_C=25.0,
+                             org_name="S-15-PhI", aq_name="S-16")
+
+    # ── V-104  Acidification  (HCl converts IbupNa → free Ibuprofen) ────
+    # F-06 HCl sized dynamically: must neutralize excess NaOH in S-16 first, then acidify IbupNa.
+    # HCl demand = n_excess_NaOH  +  n_IbupNa  (both consume 1 mol HCl per mol), + 5% excess.
+    _n_NaOH_S16  = S16.molar_flow("NaOH")
+    _n_IbupNa_S16 = S16.molar_flow("IbupNa")
+    _HCl_kg  = (1.05 * (_n_NaOH_S16 + _n_IbupNa_S16)) * MW["HCl"]   # kg/hr, 5% excess
+    _HCl_water = _HCl_kg * 9.0                                          # 10 wt% HCl solution
+    F06 = Stream("F-06 HCl", {"HCl": _HCl_kg, "Water": _HCl_water}, T=25, P=1.0)
 
     n_IbupNa    = S16.molar_flow("IbupNa")
-    HCl_needed  = n_IbupNa * MW["HCl"]
+    HCl_needed  = (_n_NaOH_S16 + n_IbupNa) * MW["HCl"]   # true demand including NaOH neutralisation
     HCl_avail   = F06.flows.get("HCl", 0.0)
     HCl_used    = min(HCl_needed, HCl_avail)
-    n_neut      = HCl_used / MW["HCl"]
-    HCl_cov     = (HCl_used / HCl_needed * 100) if HCl_needed > 0 else 100.0
+    n_neut      = min(HCl_avail / MW["HCl"] - _n_NaOH_S16, n_IbupNa)  # HCl available after NaOH neutralisation
+    n_neut      = max(0.0, n_neut)
+    HCl_cov     = (HCl_avail / HCl_needed * 100) if HCl_needed > 0 else 100.0
 
-    S17 = mix(S16, F06, name="S-17", T=30, P=1)
+    S16b = mix(S16, F06, name="S-16b", T=30, P=1)   # Acid Mixer outlet (pre-reaction)
+    S17 = S16b.clone("S-17", T=30, P=1)             # V-104 outlet (post-acidification)
+    # Step 1: HCl neutralises excess NaOH  (NaOH + HCl → NaCl + H₂O)
+    n_NaOH_neut = min(_n_NaOH_S16, F06.flows["HCl"] / MW["HCl"])
+    S17.flows["NaOH"] -= n_NaOH_neut * MW["NaOH"]
+    S17.flows["HCl"]  -= n_NaOH_neut * MW["HCl"]
+    S17.flows["NaCl"]  = S17.flows.get("NaCl", 0.0) + n_NaOH_neut * MW["NaCl"]
+    S17.flows["Water"] = S17.flows.get("Water", 0.0) + n_NaOH_neut * MW["Water"]
+    # Step 2: remaining HCl acidifies IbupNa  (IbupNa + HCl → Ibuprofen + NaCl)
     S17.flows["IbupNa"]   -= n_neut * MW["IbupNa"]
     S17.flows["HCl"]      -= n_neut * MW["HCl"]
     S17.flows["Ibuprofen"] = n_neut * MW["Ibuprofen"]
     S17.flows["NaCl"]      = S17.flows.get("NaCl", 0.0) + n_neut * MW["NaCl"]
     S17.flows = {k: max(v, 0.0) for k, v in S17.flows.items()}
 
-    # LLE — hexane extracts ibuprofen (4-stage, K_D = 8)
+    # V-104 vessel volume: τ = 10 min (acid-base mixing residence time)
+    V_V104 = volumetric_flow(S16b) * (10.0 / 60.0)   # m³
+
+    # ── S-102  LLE Extractor  (hexane extracts ibuprofen, 4-stage, K_D=8) ─
     hexane_total = tear_Hex + F07.flows.get("Hexane", 0.0)
     Vorg = hexane_total / RHO["Hexane"]
     Vaq  = S17.total_flow / 1000.0
@@ -886,10 +928,12 @@ def run_simulation(tear_TfOH: float = 0.0,
 
     ibup_ext = S17.flows.get("Ibuprofen", 0.0) * rec_LLE
     S19 = Stream("S-19", {"Ibuprofen": ibup_ext,
-                           "Hexane": hexane_total * 0.98}, T=25, P=1)
+                           "Hexane": hexane_total * 0.98}, T=25, P=1)   # S-19 = Hex-Flash inlet
     S20 = Stream("S-20", {"Ibuprofen": S17.flows.get("Ibuprofen", 0.0) * (1 - rec_LLE),
                            "NaCl": S17.flows.get("NaCl", 0.0),
-                           "Water": S17.flows.get("Water", 0.0) * 0.95}, T=25, P=1)
+                           "Water": S17.flows.get("Water", 0.0) * 0.95,
+                           "Hexane": hexane_total * 0.02},   # 2% hexane retained in aqueous raffinate
+                          T=25, P=1)
 
     # ── SECTION 5 — CRYSTALLISATION / FILTRATION / DRYING ──────────────
     hex_evap = 0.97
@@ -938,7 +982,7 @@ def run_simulation(tear_TfOH: float = 0.0,
             "S05": S05, "S06": S06,
             "S07": S07, "S08": S08, "S09": S09, "S10": S10, "S11": S11,
             "S12": S12, "S13": S13, "S14": S14,
-            "S15": S15, "S16": S16, "S17": S17,
+            "S15_PhI": S15_PhI, "S16": S16, "S16b": S16b, "S17": S17,
             "S19": S19, "S20": S20, "S21": S21, "S22": S22,
             "S25": S25, "S27": S27,
             "C101_dist": C101_dist, "C101_bot": C101_bot,
@@ -972,8 +1016,8 @@ def run_simulation(tear_TfOH: float = 0.0,
                       "Q_cond": Q_C103_cond, "Q_reb": Q_C103_reb,
                       "feed": S10, "dist": C103_dist, "bott": C103_bot},
         },
-        # Reactor volumes
-        V_R101=V_R101, V_R102=V_R102, V_R103=V_R103,
+        # Reactor / vessel volumes
+        V_R101=V_R101, V_R102=V_R102, V_R103=V_R103, V_V104=V_V104,
         # Spec numbers
         ibup_API=S27.flows["Ibuprofen"],
         MeOH_ppm=S27.wt_frac("MeOH") * 1e6,
@@ -1133,7 +1177,7 @@ f = res["fresh"]
 print("  Fresh feed makeup (vs no-recycle baseline):")
 print(f"  {'Chemical':<12} {'No-recycle':>14}  {'With recycle':>14}  {'Saving':>12}")
 print(f"  {'─'*56}")
-base = {"TfOH": 320.0, "TMOF": 659.0, "MeOH_S2": 792.0}
+base = {"TfOH": TOTAL_TfOH_SM101, "TMOF": TOTAL_TMOF_SM102, "MeOH_S2": TOTAL_MeOH_SM102}
 for chem, base_val in base.items():
     fresh_val = f[chem]
     saving = base_val - fresh_val
@@ -1183,6 +1227,9 @@ rct_rows = [
     {"Tag": "R-103", "Type": "PFR",  "T(°C)": 65,  "τ(min)": 7.5,
      "Vol(m³)": round(res["V_R103"], 3),  "Vol(L)": round(res["V_R103"]*1000, 0),
      "Conv": "90% Ester", "Rxn": "Saponification"},
+    {"Tag": "V-104", "Type": "Acid vessel", "T(°C)": 30, "τ(min)": 10.0,
+     "Vol(m³)": round(res["V_V104"], 4), "Vol(L)": round(res["V_V104"]*1000, 1),
+     "Conv": "~100% IbupNa", "Rxn": "Acidification (HCl)"},
 ]
 print(tabulate(rct_rows, headers="keys", tablefmt="rounded_outline", showindex=False))
 
@@ -1191,7 +1238,7 @@ section("MASTER STREAM TABLE  (kg/hr, top-3 components each)")
 slist = ["F01","F02","F03","F04","F05","F06","F07",
          "S01","S02","S03","S04","S05","S06",
          "S07","S08","S09","S10","S11",
-         "S12","S13","S14","S15","S16","S17",
+         "S12","S13","S14","S15_PhI","S16","S16b","S17",
          "S19","S20","S21","S22","S25","S27",
          "C101_dist","C101_bot","C103_dist","C103_bot","C102_hex"]
 tbl = []
@@ -1248,10 +1295,11 @@ print("\n  ─── Equipment ───")
 print(f"  {'R-101 volume':<35} {res['V_R101']*1000:.1f} L")
 print(f"  {'R-102 volume':<35} {res['V_R102']*1000:.1f} L")
 print(f"  {'R-103 volume':<35} {res['V_R103']*1000:.0f} L")
+print(f"  {'V-104 volume (acid vessel)':<35} {res['V_V104']*1000:.1f} L")
 print(f"  {'Total heating':<35} {total_H/1000:.3f} MW")
 print(f"  {'Total cooling':<35} {abs(total_C)/1000:.3f} MW")
 
-PhI_rate = S["S15"].flows.get("PhI", 0)
+PhI_rate = S["S15_PhI"].flows.get("PhI", 0)
 print(f"  {'PhI byproduct':<35} {PhI_rate:.1f} kg/hr  ({PhI_rate*8000/1000:.0f} MT/yr)")
 
 # ── Spec Summary ───────────────────────────────────────────────────────
@@ -1313,9 +1361,10 @@ _T_V102_desc = f"T = 80°C → τ(T) evaluated at 353.15 K"
 _T_V103_desc = f"T = 25°C → τ=τ_ref + Setschenow NaCl correction"
 print(f"""
   V-101  LLE  (T = 0°C, P = 17 bar, {_T_V101_desc})
-    Organic (S-05): Ketone {S['S05'].wt_frac('Ketone')*100:.1f}%  |  IBB {S['S05'].wt_frac('IBB')*100:.1f}%  |  ProAc {S['S05'].wt_frac('ProAc')*100:.1f}%
+    Organic (S-05): Ketone {S['S05'].wt_frac('Ketone')*100:.1f}%  |  IBB {S['S05'].wt_frac('IBB')*100:.1f}%  |  ProAc {S['S05'].wt_frac('ProAc')*100:.1f}%  |  TfOH {S['S05'].wt_frac('TfOH')*100:.1f}%
     Aqueous (S-06): TfOH  {S['S06'].wt_frac('TfOH')*100:.1f}%  |  Water {S['S06'].wt_frac('Water')*100:.1f}%  |  ProAc {S['S06'].wt_frac('ProAc')*100:.1f}%
-    Water in organic: {S['S05'].wt_frac('Water')*100:.2f} wt%  (spec < 0.5%)  ✅
+    Water in organic: {S['S05'].wt_frac('Water')*100:.2f} wt%  (spec < 0.5%)  {"✅" if S['S05'].wt_frac('Water') < 0.005 else "❌"}
+    TfOH in organic:  {S['S05'].wt_frac('TfOH')*100:.2f} wt%  (should be ~0% — TfOH forced aqueous)  {"✅" if S['S05'].wt_frac('TfOH') < 0.01 else "❌"}
 
   V-102  VLE flash  (T = 80°C, P = 0.25 bar, {_T_V102_desc})
     Overhead (S-10): MeOH {S['S10'].wt_frac('MeOH')*100:.1f}%  |  TMOF {S['S10'].wt_frac('TMOF')*100:.1f}%
@@ -1325,9 +1374,9 @@ print(f"""
   V-103  LLE  (T = 25°C, P = 1 bar, {_T_V103_desc})
     m_NaCl in feed:  {res['m_NaCl_S14']:.3f} mol/kg_water  (drives Setschenow salting-out)
     Ks(Ibuprofen) = 0.150 L/mol  → factor {np.exp(0.150*res['m_NaCl_S14']):.3f}× on K_Ibup
-    Organic (S-15): PhI {S['S15'].wt_frac('PhI')*100:.1f}%  |  PhI_OAc2 {S['S15'].wt_frac('PhI_OAc2')*100:.1f}%  |  Ketone {S['S15'].wt_frac('Ketone')*100:.1f}%
+    Organic (S-15-PhI): PhI {S['S15_PhI'].wt_frac('PhI')*100:.1f}%  |  PhI_OAc2 {S['S15_PhI'].wt_frac('PhI_OAc2')*100:.1f}%  |  Ketone {S['S15_PhI'].wt_frac('Ketone')*100:.1f}%
     Aqueous (S-16): IbupNa {S['S16'].wt_frac('IbupNa')*100:.1f}%  |  Water {S['S16'].wt_frac('Water')*100:.1f}%  |  MeOH {S['S16'].wt_frac('MeOH')*100:.1f}%
-    IbupNa in organic: {S['S15'].wt_frac('IbupNa')*100:.2f} wt%  (should be ~0%)
+    IbupNa in organic: {S['S15_PhI'].wt_frac('IbupNa')*100:.2f} wt%  (should be ~0%)
     PhI_OAc2 in aqueous: {S['S16'].wt_frac('PhI_OAc2')*100:.2f} wt%  (should be ~0%)
 """)
 
@@ -1447,6 +1496,7 @@ C_HX104 = _hx_Cp(abs(DT["HX-104"]), LMTD_K=20,  U_kW_m2K=0.50)
 C_V101  = _vessel_Cp(S["S04"].total_flow / 900.0 * (5.0/60.0),  P_bar=17.0, F_BM=3.17)
 C_V102  = _vessel_Cp(S["S09"].total_flow / 900.0 * (2.0/60.0),  P_bar=0.3,  F_BM=2.50)
 C_V103  = _vessel_Cp(S["S14"].total_flow / 1000.0 * (5.0/60.0), P_bar=1.0,  F_BM=2.25)
+C_V104  = _vessel_Cp(res["V_V104"],                              P_bar=1.0,  F_BM=2.25)   # CS, τ=10 min
 
 C_C101_d = _column_cost(CO["C-101"]["N_act"], CO["C-101"]["Q_cond"],
                          CO["C-101"]["Q_reb"],
@@ -1473,6 +1523,7 @@ capex_rows = [
     ("V-101  LLE separator [17 bar]", C_V101),
     ("V-102  vacuum flash drum",    C_V102),
     ("V-103  LLE separator [1 bar]", C_V103),
+    ("V-104  Acidification vessel [1 bar]", C_V104),
     ("C-101  col + cond + reb",     C_C101_d["total"]),
     ("C-102  hexane condenser",     C_C102),
     ("C-103  col + cond + reb",     C_C103_d["total"]),
@@ -1667,7 +1718,7 @@ print(f"""
 print("\n" + "="*70)
 print("SIMULATION COMPLETE  (v5 — T-dependent NRTL + electrolytes + Setschenow + PR-EOS)")
 print("="*70)
-print("""
+print("")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1734,7 +1785,7 @@ try:
     stream_order = ["F01","F02","F03","F04","F05","F06","F07",
                     "S01","S02","S03","S04","S05","S06",
                     "S07","S08","S09","S10","S11",
-                    "S12","S13","S14","S15","S16","S17",
+                    "S12","S13","S14","S15_PhI","S16","S16b","S17",
                     "S19","S20","S21","S22","S25","S27",
                     "C101_dist","C101_bot","C103_dist","C103_bot","C102_hex"]
 
@@ -1823,21 +1874,23 @@ try:
 
     # ── Sheet 4: Reactor Sizing ───────────────────────────────────────────
     def _rct_dims(V_m3, LD):
-        """Shell D×L from volume and L/D ratio (tubular assumption)."""
+        """Shell D x L from volume and L/D ratio (tubular assumption)."""
         D = (4.0 * V_m3 / (_math.pi * LD)) ** (1.0/3.0)
         L = LD * D
         return D, L
 
     def _mass_flux(stream, D_m):
-        """kg/m²·s at reactor inlet."""
+        """kg/m2/s at reactor inlet."""
         return (stream.total_flow / 3600.0) / (_math.pi/4.0 * D_m**2)
 
     _V101, _L101 = _rct_dims(res["V_R101"], 10)
     _V102, _L102 = _rct_dims(res["V_R102"], 10)
     _V103, _L103 = _rct_dims(res["V_R103"], 1.5)
+    _V104d, _L104 = _rct_dims(res["V_V104"], 1.5)   # V-104 acid vessel (L/D=1.5, jacketed)
     _G101 = _mass_flux(S["S02"], _V101)
     _G102 = _mass_flux(S["S08"], _V102)
     _G103 = _mass_flux(S["S12"], _V103)
+    _G104 = _mass_flux(S["S16b"], _V104d)
 
     df_reactors = pd.DataFrame([
         {"Tag":"R-101","Type":"PFR","T(°C)":150,"T(°F)":round(150*9/5+32,0),    # I3
@@ -1868,6 +1921,15 @@ try:
          "Mass flux (kg/m²·s)":round(_G103,2),
          "Density PR-EOS (kg/m³)":"—","Density (lb/ft³)":"—",
          "Conversion":"90% Ester","Reaction":"Saponification"},
+        {"Tag":"V-104","Type":"Acid vessel","T(°C)":30,"T(°F)":round(30*9/5+32,0),
+         "P(bar)":1.0,"P(psia)":round(1.0*_PSIA,1),
+         "τ(min)":10.0,"Vol(m³)":round(res["V_V104"],4),
+         "Vol(L)":round(res["V_V104"]*1000,2),"Vol(gal)":round(res["V_V104"]*_GAL,1),
+         "L/D":1.5,"D(m)":round(_V104d,3),"L(m)":round(_L104,2),
+         "D(in)":round(_V104d*_IN,1),"L(ft)":round(_L104*_FT,1),
+         "Mass flux (kg/m²·s)":round(_G104,2),
+         "Density PR-EOS (kg/m³)":"—","Density (lb/ft³)":"—",
+         "Conversion":"~100% IbupNa","Reaction":"Acidification (HCl)"},
     ])
 
     # ── Sheet 5: Column Sizing ────────────────────────────────────────────
@@ -1921,7 +1983,7 @@ try:
     # ── Sheet 6: CAPEX ────────────────────────────────────────────────────
     # L1: build detail table with Cp0 (purchased cost before BM) and size params
     def _cp0(C_bm, F_bm):
-        """Purchased cost 2001 USD = C_BM / (F_BM × CEPCI_RATIO)."""
+        """Purchased cost 2001 USD = C_BM / (F_BM * CEPCI_RATIO)."""
         return C_bm / (F_bm * CEPCI_RATIO)
 
     def _hx_area_m2(Q_kW, U, LMTD):
@@ -1948,6 +2010,8 @@ try:
          f"Vol: {S['S09'].total_flow/900*(2/60):.3f} m³"),
         ("V-103  LLE separator [1 bar]", C_V103, 2.25,
          f"Vol: {S['S14'].total_flow/1000*(5/60):.3f} m³"),
+        ("V-104  Acidification vessel [1 bar]", C_V104, 2.25,
+         f"Vol: {res['V_V104']:.3f} m³  ({res['V_V104']*1000:.0f} L), tau=10 min"),
         ("C-101  col + cond + reb",   C_C101_d["total"], 3.00,
          f"D: {C_C101_d['D_m']:.2f} m × H: {C_C101_d['H_m']:.1f} m  ({CO['C-101']['N_act']} trays)"),
         ("C-102  hexane condenser",   C_C102, 3.29,
